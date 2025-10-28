@@ -1,0 +1,21 @@
+<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background circle with gradient -->
+  <circle cx="16" cy="16" r="16" fill="url(#gradient)"/>
+  
+  <!-- Main Z shape -->
+  <path d="M8 10 L24 10 L24 12 L12 12 L12 20 L24 20 L24 22 L8 22 Z" fill="white"/>
+  
+  <!-- Wellness wave accent -->
+  <path d="M6 24 Q10 20 14 24 Q18 28 22 24" stroke="white" stroke-width="2" fill="none" opacity="0.8"/>
+  
+  <!-- Small dot for balance -->
+  <circle cx="16" cy="6" r="2" fill="white" opacity="0.9"/>
+  
+  <defs>
+    <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#3B82F6;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#1D4ED8;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1E40AF;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+</svg>
