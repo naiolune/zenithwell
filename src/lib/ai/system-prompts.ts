@@ -3,7 +3,7 @@
  * Server-side only - generates dynamic system messages based on session type and context
  */
 
-export type SessionType = 'individual' | 'relationship' | 'family' | 'general';
+export type SessionType = 'individual' | 'group' | 'relationship' | 'family' | 'general';
 
 export interface UserMemory {
   id: string;
@@ -31,12 +31,23 @@ export interface ParticipantIntroduction {
   expectations?: string;
 }
 
+export interface GroupMemory {
+  id: string;
+  session_id: string;
+  memory_key: string;
+  memory_value: string;
+  category: 'group_goals' | 'shared_insights' | 'group_progress' | 'session_notes' | 'collective_learnings';
+  created_at: string;
+  created_by: string;
+}
+
 export interface SystemPromptConfig {
   sessionType: SessionType;
   isFirstSession: boolean;
   userMemory: UserMemory[];
   userName?: string;
   participantIntroductions?: ParticipantIntroduction[];
+  groupMemory?: GroupMemory[];
 }
 
 // Base ZenithWell prompt that applies to all sessions
@@ -65,6 +76,15 @@ INDIVIDUAL SESSION FOCUS:
 - Self-reflection and emotional awareness
 - Personal goal setting and accountability
 - One-on-one support tailored to their unique journey`,
+
+  group: `
+GROUP SESSION FOCUS:
+- Shared experiences and peer support
+- Group cohesion and safe space creation
+- Facilitating respectful dialogue between members
+- Drawing connections between members' experiences
+- Encouraging participation from all members
+- Managing group dynamics and keeping discussions productive`,
 
   relationship: `
 RELATIONSHIP SESSION FOCUS:
@@ -129,6 +149,20 @@ USING MEMORY:
 
 If no memory exists, treat as first session and collect foundational information.`;
 
+// Group memory integration template
+const GROUP_MEMORY_INTEGRATION_TEMPLATE = `
+AVAILABLE GROUP MEMORY (if exists):
+{group_memory_context}
+
+USING GROUP MEMORY:
+- Reference shared group insights and progress ("As a group, you've been working on...")
+- Track collective goals and achievements ("The group has made progress on...")
+- Build on previous group discussions ("Last time the group discussed...")
+- Maintain group continuity and shared understanding
+- Focus on group dynamics and collective growth
+
+If no group memory exists, treat as first group session and collect foundational group information.`;
+
 // Group introduction context template
 const GROUP_INTRODUCTION_TEMPLATE = `
 GROUP SESSION CONTEXT:
@@ -144,6 +178,31 @@ GROUP FACILITATION GUIDELINES:
 - Use the introduction context to personalize your responses
 - Reference shared goals and challenges when appropriate
 - Maintain group cohesion while respecting individual boundaries`;
+
+/**
+ * Format group memory into context for AI
+ */
+export function formatGroupMemoryContext(memories: GroupMemory[]): string {
+  if (!memories || memories.length === 0) {
+    return 'No group session memory available';
+  }
+
+  const memoryByCategory = memories.reduce((acc, memory) => {
+    if (!acc[memory.category]) {
+      acc[memory.category] = [];
+    }
+    acc[memory.category].push(memory);
+    return acc;
+  }, {} as Record<string, GroupMemory[]>);
+
+  const formattedSections = Object.entries(memoryByCategory).map(([category, items]) => {
+    const categoryName = category.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+    const itemsList = items.map(item => `- ${item.memory_key}: ${item.memory_value}`).join('\n');
+    return `${categoryName}:\n${itemsList}`;
+  });
+
+  return formattedSections.join('\n\n');
+}
 
 /**
  * Format participant introductions into context for AI
@@ -225,7 +284,7 @@ export function getFirstSessionPrompt(userName: string = 'there'): string {
  * Build complete system prompt based on session configuration
  */
 export function getSystemPrompt(config: SystemPromptConfig): string {
-  const { sessionType, isFirstSession, userMemory, userName, participantIntroductions } = config;
+  const { sessionType, isFirstSession, userMemory, userName, participantIntroductions, groupMemory } = config;
   
   let prompt = BASE_ZENITHWELL_PROMPT;
   
@@ -237,13 +296,19 @@ export function getSystemPrompt(config: SystemPromptConfig): string {
     prompt += '\n\n' + getGroupIntroductionContext(participantIntroductions);
   }
   
-  // Add first session protocol if needed
-  if (isFirstSession) {
+  // Add group memory context for group sessions
+  if (sessionType === 'group' && groupMemory && groupMemory.length > 0) {
+    const groupMemoryContext = formatGroupMemoryContext(groupMemory);
+    prompt += '\n\n' + GROUP_MEMORY_INTEGRATION_TEMPLATE.replace('{group_memory_context}', groupMemoryContext);
+  }
+  
+  // Add first session protocol if needed (only for individual sessions)
+  if (isFirstSession && sessionType !== 'group') {
     prompt += '\n\n' + getFirstSessionPrompt(userName);
   }
   
-  // Add memory context if available
-  if (userMemory && userMemory.length > 0) {
+  // Add individual memory context if available (only for individual sessions)
+  if (sessionType !== 'group' && userMemory && userMemory.length > 0) {
     const memoryContext = formatMemoryContext(userMemory);
     prompt += '\n\n' + MEMORY_INTEGRATION_TEMPLATE.replace('{memory_context}', memoryContext);
   }

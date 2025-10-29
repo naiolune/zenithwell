@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
-import { getSystemPrompt, SystemPromptConfig, ParticipantIntroduction } from './system-prompts';
+import { getSystemPrompt, SystemPromptConfig, ParticipantIntroduction, GroupMemory } from './system-prompts';
+import { getGroupMemories } from './group-memory-service';
 import { 
   getUserMemory, 
   formatMemoryContext, 
@@ -72,6 +73,7 @@ export class ServerAIService {
       let userMemory: UserMemory[] = [];
       let userName = 'there';
       let participantIntroductions: ParticipantIntroduction[] = [];
+      let groupMemory: GroupMemory[] = [];
 
       if (sessionId && userId) {
         try {
@@ -97,14 +99,19 @@ export class ServerAIService {
             userName = user.email.split('@')[0]; // Use email prefix as name
           }
 
-          // Check if first session
-          isFirstSession = await detectFirstSession(userId, sessionId);
+          // Check if first session (only for individual sessions)
+          if (sessionType !== 'group') {
+            isFirstSession = await detectFirstSession(userId, sessionId);
+          }
 
-          // Get user memory
-          userMemory = await getUserMemory(userId);
+          // Get user memory (only for individual sessions)
+          if (sessionType !== 'group') {
+            userMemory = await getUserMemory(userId);
+          }
 
-          // Get participant introductions for group sessions
+          // Get participant introductions and group memory for group sessions
           if (sessionType === 'group' || session?.group_category) {
+            // Get participant introductions
             const { data: introductions } = await supabase
               .from('participant_introductions')
               .select(`
@@ -148,6 +155,9 @@ export class ServerAIService {
                 expectations: intro.expectations
               }));
             }
+
+            // Get group memory
+            groupMemory = await getGroupMemories(sessionId);
           }
         } catch (error) {
           console.error('Error fetching session context:', error);
@@ -161,7 +171,8 @@ export class ServerAIService {
         isFirstSession,
         userMemory,
         userName,
-        participantIntroductions
+        participantIntroductions,
+        groupMemory
       };
 
       const systemMessage = {
