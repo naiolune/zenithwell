@@ -39,6 +39,8 @@ export default function ChatPage() {
   const [showBreakPrompt, setShowBreakPrompt] = useState(false);
   const [showEmergencyResources, setShowEmergencyResources] = useState(false);
   const [completingIntroduction, setCompletingIntroduction] = useState(false);
+  const [showInfoPanel, setShowInfoPanel] = useState(false);
+  const [showInsightPanel, setShowInsightPanel] = useState(false);
   const [insights, setInsights] = useState<SessionInsight[]>([]);
   const [generatingInsight, setGeneratingInsight] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -570,6 +572,7 @@ Ready to start your first regular wellness session?`,
   };
 
   const handleEmergencyResources = () => {
+    setShowInsightPanel(true);
     setShowEmergencyResources(true);
   };
 
@@ -659,72 +662,26 @@ Ready to start your first regular wellness session?`,
         </div>
       </header>
 
-      <div className="flex-1 overflow-hidden px-4 py-6">
-        <div className="mx-auto grid h-full max-w-6xl gap-4 lg:grid-cols-[320px,minmax(0,1fr),320px]">
-          <div className="hidden lg:block overflow-y-auto rounded-3xl">
-            <SessionSidebar
-              sessionTitle={sessionTitle}
-              onBack={() => router.push('/dashboard/sessions')}
-              userSubscription={userSubscription}
-              timeRemaining={timeRemaining}
-              sessionEnded={sessionEnded}
-              sessionStartTime={sessionStartTime}
-              isIntroductionSession={isIntroductionSession}
-              showCompleteIntroduction={showCompleteIntroduction}
-              onCompleteIntroduction={completeIntroduction}
-              completingIntroduction={completingIntroduction}
-              quickActions={renderQuickActions()}
-              introductionCompleted={isIntroductionLock}
-              messageStats={messageStats}
+      <main className="flex-1 overflow-y-auto px-4 py-6">
+        <div className="mx-auto max-w-4xl space-y-4">
+          <SessionLockBanner
+            isLocked={isSessionLocked}
+            lockReason={lockReason}
+            isIntroductionLock={isIntroductionLock}
+            onStartFirstSession={handleStartFirstSession}
+            className="border-none"
+          />
+
+          {showBreakPrompt && (
+            <BreakPrompt
+              visible={showBreakPrompt}
+              onAccept={handleBreakAccept}
+              onDismiss={handleBreakDismiss}
             />
-          </div>
+          )}
 
-          <div className="flex flex-col overflow-hidden rounded-[32px] border border-white/60 dark:border-slate-800/70 bg-white/80 dark:bg-slate-900/70 shadow-xl">
-            <div className="lg:hidden border-b border-white/60 dark:border-slate-800/60 p-4">
-              <SessionSidebar
-                sessionTitle={sessionTitle}
-                onBack={() => router.push('/dashboard/sessions')}
-                userSubscription={userSubscription}
-                timeRemaining={timeRemaining}
-                sessionEnded={sessionEnded}
-                sessionStartTime={sessionStartTime}
-                isIntroductionSession={isIntroductionSession}
-                showCompleteIntroduction={showCompleteIntroduction}
-                onCompleteIntroduction={completeIntroduction}
-                completingIntroduction={completingIntroduction}
-              introductionCompleted={isIntroductionLock}
-                messageStats={messageStats}
-              />
-            </div>
-
-            <SessionLockBanner
-              isLocked={isSessionLocked}
-              lockReason={lockReason}
-              isIntroductionLock={isIntroductionLock}
-              onStartFirstSession={handleStartFirstSession}
-              className="border-none"
-            />
-
-            {showBreakPrompt && (
-              <div className="px-6 pt-4">
-                <BreakPrompt
-                  visible={showBreakPrompt}
-                  onAccept={handleBreakAccept}
-                  onDismiss={handleBreakDismiss}
-                />
-              </div>
-            )}
-
-            {showEmergencyResources && (
-              <div className="lg:hidden space-y-3 px-6 pt-4">
-                <EmergencyResources compact urgencyLevel="high" />
-                <Button variant="outline" size="sm" onClick={handleCloseEmergencyResources}>
-                  Close resources
-                </Button>
-              </div>
-            )}
-
-            <div className="flex-1 overflow-y-auto space-y-6 px-6 py-6 scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-700">
+          <div className="rounded-[32px] border border-white/60 dark:border-slate-800/70 bg-white/80 dark:bg-slate-900/70 shadow-xl">
+            <div className="max-h-[65vh] sm:max-h-[70vh] lg:max-h-[75vh] overflow-y-auto space-y-6 px-6 py-6 scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-700">
               {initializing ? (
                 <div className="flex h-full flex-col items-center justify-center space-y-3 text-center">
                   <div className="grid h-16 w-16 place-items-center rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow animate-pulse">
@@ -748,7 +705,10 @@ Ready to start your first regular wellness session?`,
                     <Button variant="outline" onClick={() => router.push('/dashboard/sessions')}>
                       Back to sessions
                     </Button>
-                    <Button onClick={() => router.push('/dashboard/settings')} className="bg-gradient-to-r from-yellow-500 to-orange-600 hover:from-yellow-600 hover:to-orange-700">
+                    <Button
+                      onClick={() => router.push('/dashboard/settings')}
+                      className="bg-gradient-to-r from-yellow-500 to-orange-600 hover:from-yellow-600 hover:to-orange-700"
+                    >
                       Upgrade to Pro
                     </Button>
                   </div>
@@ -756,7 +716,7 @@ Ready to start your first regular wellness session?`,
               ) : (
                 <>
                   {messages.length === 0 && (
-                    <div className="mt-10 text-center text-sm text-slate-400 dark:text-slate-500">
+                    <div className="mt-4 text-center text-sm text-slate-400 dark:text-slate-500">
                       Your coach is ready whenever you are. Share what&apos;s on your mind.
                     </div>
                   )}
@@ -784,21 +744,58 @@ Ready to start your first regular wellness session?`,
                 </>
               )}
             </div>
-
-            {!isSessionLocked && (
-              <ChatInput
-                value={inputMessage}
-                onChange={setInputMessage}
-                onSend={() => sendMessage()}
-                disabled={loading || sessionEnded || initializing || !!pendingMessage}
-                placeholder="Share your thoughts, feelings, or wellness goals…"
-                onKeyDown={handleInputKeyDown}
-                quickActions={<div className="lg:hidden">{renderQuickActions()}</div>}
-              />
-            )}
           </div>
 
-          <div className="hidden xl:block overflow-y-auto rounded-3xl">
+          {!isSessionLocked && (
+            <ChatInput
+              value={inputMessage}
+              onChange={setInputMessage}
+              onSend={() => sendMessage()}
+              disabled={loading || sessionEnded || initializing || !!pendingMessage}
+              placeholder="Share your thoughts, feelings, or wellness goals…"
+              onKeyDown={handleInputKeyDown}
+            />
+          )}
+
+          <div className="flex flex-wrap gap-2 pt-2">
+            <Button
+              variant={showInfoPanel ? 'default' : 'outline'}
+              size="sm"
+              className="rounded-full"
+              onClick={() => setShowInfoPanel(prev => !prev)}
+            >
+              {showInfoPanel ? 'Hide session details' : 'View session details'}
+            </Button>
+            <Button
+              variant={showInsightPanel ? 'default' : 'outline'}
+              size="sm"
+              className="rounded-full"
+              onClick={() => setShowInsightPanel(prev => !prev)}
+            >
+              {showInsightPanel ? 'Hide insights & support' : 'Insights & support'}
+            </Button>
+          </div>
+
+          {showInfoPanel && (
+            <SessionSidebar
+              sessionTitle={sessionTitle}
+              onBack={() => router.push('/dashboard/sessions')}
+              userSubscription={userSubscription}
+              timeRemaining={timeRemaining}
+              sessionEnded={sessionEnded}
+              sessionStartTime={sessionStartTime}
+              isIntroductionSession={isIntroductionSession}
+              showCompleteIntroduction={showCompleteIntroduction}
+              onCompleteIntroduction={completeIntroduction}
+              completingIntroduction={completingIntroduction}
+              quickActions={renderQuickActions()}
+              introductionCompleted={isIntroductionLock}
+              messageStats={messageStats}
+              className="bg-white/80 dark:bg-slate-900/70"
+            />
+          )}
+
+          {showInsightPanel && (
             <ContextPanel
               messages={messages}
               insights={insights}
@@ -808,10 +805,24 @@ Ready to start your first regular wellness session?`,
               onCloseEmergencyResources={handleCloseEmergencyResources}
               onGenerateInsight={() => generateInsight(false)}
               generatingInsight={generatingInsight}
+              className="bg-white/80 dark:bg-slate-900/70"
             />
-          </div>
+          )}
+
+          {showEmergencyResources && !showInsightPanel && (
+            <div className="space-y-3">
+              <EmergencyResources
+                compact
+                urgencyLevel="high"
+                className="bg-white/80 dark:bg-slate-900/70"
+              />
+              <Button variant="outline" size="sm" className="rounded-full" onClick={handleCloseEmergencyResources}>
+                Close resources
+              </Button>
+            </div>
+          )}
         </div>
-      </div>
+      </main>
 
       <Dialog open={showIntroductionLockedModal} onOpenChange={setShowIntroductionLockedModal}>
         <DialogContent>
