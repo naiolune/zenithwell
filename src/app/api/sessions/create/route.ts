@@ -62,7 +62,11 @@ async function handleCreateSession(request: NextRequest, context: SecurityContex
 
       if (introCreateError) {
         console.error('Error creating introduction session:', introCreateError);
-        return NextResponse.json({ error: 'Failed to create introduction session' }, { status: 500 });
+        console.error('Error details:', JSON.stringify(introCreateError, null, 2));
+        return NextResponse.json({ 
+          error: 'Failed to create introduction session',
+          details: introCreateError.message 
+        }, { status: 500 });
       }
 
       // Create the initial AI message for introduction
@@ -94,7 +98,11 @@ Feel free to share as much or as little as you're comfortable with. Everything w
 
       if (messageError) {
         console.error('Error creating initial AI message:', messageError);
-        return NextResponse.json({ error: 'Failed to create initial message' }, { status: 500 });
+        console.error('Message error details:', JSON.stringify(messageError, null, 2));
+        return NextResponse.json({ 
+          error: 'Failed to create initial message',
+          details: messageError.message 
+        }, { status: 500 });
       }
 
       return NextResponse.json({ 
