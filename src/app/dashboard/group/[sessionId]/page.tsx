@@ -159,7 +159,13 @@ export default function GroupSessionPage() {
       return;
     }
 
-    setMessages(data || []);
+    // Convert timestamp strings to Date objects
+    const messagesWithDates = (data || []).map((msg: any) => ({
+      ...msg,
+      timestamp: msg.timestamp ? new Date(msg.timestamp) : new Date()
+    }));
+
+    setMessages(messagesWithDates);
   };
 
   const startHeartbeat = () => {
@@ -184,8 +190,13 @@ export default function GroupSessionPage() {
         table: 'session_messages',
         filter: `session_id=eq.${sessionId}`
       }, (payload) => {
-        const newMessage = payload.new as ChatMessage;
-        setMessages(prev => [...prev, newMessage]);
+        const newMessage = payload.new as any;
+        // Convert timestamp string to Date object
+        const messageWithDate: ChatMessage = {
+          ...newMessage,
+          timestamp: newMessage.timestamp ? new Date(newMessage.timestamp) : new Date()
+        };
+        setMessages(prev => [...prev, messageWithDate]);
       })
       .on('postgres_changes', {
         event: 'UPDATE',
@@ -214,7 +225,7 @@ export default function GroupSessionPage() {
       session_id: sessionId,
       sender: 'user',
       content: inputMessage.trim(),
-      timestamp: new Date().toISOString(),
+      timestamp: new Date(),
       status: 'sending'
     };
 
@@ -260,7 +271,7 @@ export default function GroupSessionPage() {
         session_id: sessionId,
         sender: 'ai',
         content: data.message,
-        timestamp: new Date().toISOString(),
+        timestamp: new Date(),
         status: 'sent'
       };
 
@@ -451,7 +462,7 @@ export default function GroupSessionPage() {
         <div className="flex-1 overflow-y-auto p-4">
           <div className="space-y-2">
             <div className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">
-              Members — {participants.length}
+              Members ? {participants.length}
             </div>
             {participants.map((participant) => (
               <div key={participant.user_id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-slate-700 dark:hover:bg-slate-800 transition-colors">
@@ -539,7 +550,7 @@ export default function GroupSessionPage() {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-amber-200">
                 <Clock className="h-4 w-4" />
-                <span className="text-sm">Waiting room · {readyParticipants}/{participants.length} ready</span>
+                <span className="text-sm">Waiting room ? {readyParticipants}/{participants.length} ready</span>
               </div>
               {isOwner && allParticipantsReady && (
                 <Button size="sm" onClick={startSession} className="bg-amber-600 hover:bg-amber-700">
@@ -572,17 +583,15 @@ export default function GroupSessionPage() {
               <MessageBubble
                 key={message.id}
                 message={message}
-                isLast={index === messages.length - 1}
                 onResend={() => resendMessage(message.id)}
                 onDelete={() => deleteMessage(message.id)}
                 canDelete={message.sender === 'user' && !loading}
-                canResend={message.sender === 'user' && message.status === 'failed'}
               />
             ))}
             {loading && (
               <div className="flex items-center gap-3 p-4">
                 <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white text-sm">
-                  👤
+                  ??
                 </div>
                 <div className="flex-1">
                   <div className="text-sm font-medium text-white">Your coach is typing...</div>

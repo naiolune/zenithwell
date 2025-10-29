@@ -96,6 +96,8 @@ export interface ChatMessage {
   needsResend?: boolean;
   isResending?: boolean;
   resendCount?: number;
+  session_id?: string;
+  status?: 'sending' | 'sent' | 'failed';
 }
 
 export interface AIProvider {
