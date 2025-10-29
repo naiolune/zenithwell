@@ -145,22 +145,41 @@ Feel free to share as much or as little as you're comfortable with. Everything w
     }
 
     // Create new regular session
+    // Note: Not setting created_at and last_message_at explicitly - let database defaults handle them
     const { data: newSession, error: createError } = await supabase
       .from('therapy_sessions')
       .insert({
         user_id: context.user.id,
         title: sanitizedTitle,
         is_group: isGroup,
-        session_type: actualSessionType,
-        created_at: new Date().toISOString(),
-        last_message_at: new Date().toISOString()
+        session_type: actualSessionType
       })
       .select()
       .single();
 
     if (createError) {
       console.error('Error creating session:', createError);
-      return NextResponse.json({ error: 'Failed to create session' }, { status: 500 });
+      console.error('Error details:', JSON.stringify(createError, null, 2));
+      console.error('Attempted session_type:', actualSessionType);
+      console.error('Attempted is_group:', isGroup);
+      
+      // Check if it's a constraint violation
+      if (createError.message?.includes('check constraint')) {
+        return NextResponse.json({ 
+          error: 'Failed to create session',
+          details: createError.message,
+          hint: 'The session_type constraint may need to be updated. Please contact support.',
+          attemptedValues: {
+            session_type: actualSessionType,
+            is_group: isGroup
+          }
+        }, { status: 500 });
+      }
+      
+      return NextResponse.json({ 
+        error: 'Failed to create session',
+        details: createError.message 
+      }, { status: 500 });
     }
 
     return NextResponse.json({ 
