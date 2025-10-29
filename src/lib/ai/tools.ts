@@ -307,6 +307,27 @@ export const AI_TOOLS: AITool[] = [
       additionalProperties: false
     },
     strict: true
+  },
+  {
+    type: "function",
+    name: "generate_session_insight",
+    description: "Store a concise insight or reflection about the current session",
+    parameters: {
+      type: "object",
+      properties: {
+        insight_text: {
+          type: "string",
+          description: "Short insight (max 300 characters) capturing a meaningful reflection from the session"
+        },
+        insight_type: {
+          type: "string",
+          description: "Optional insight type label (e.g., 'progress', 'emotion', 'strategy')"
+        }
+      },
+      required: ["insight_text"],
+      additionalProperties: false
+    },
+    strict: true
   }
 ];
 

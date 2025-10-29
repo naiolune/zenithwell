@@ -36,6 +36,15 @@ export interface WellnessSession {
   can_unlock?: boolean;
 }
 
+export interface SessionInsight {
+  id: string;
+  session_id: string;
+  insight_text: string;
+  insight_type?: string;
+  created_at: string;
+  created_by?: string;
+}
+
 export interface SessionMessage {
   message_id: string;
   session_id: string;

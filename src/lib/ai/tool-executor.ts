@@ -72,6 +72,9 @@ export async function executeToolCall(
       
       case 'add_memory_tag':
         return await executeAddMemoryTag(parsedArgs, userId, toolCall.id);
+
+      case 'generate_session_insight':
+        return await executeGenerateSessionInsight(parsedArgs, sessionId, toolCall.id);
       
       default:
         return {
@@ -878,5 +881,46 @@ async function executeAddMemoryTag(
     role: 'tool',
     name: 'add_memory_tag',
     content: `Memory '${memory_key}' tagged with emotion: ${emotion_tag}, importance: ${importance_level}/5`
+  };
+}
+
+async function executeGenerateSessionInsight(
+  args: { insight_text: string; insight_type?: string },
+  sessionId: string,
+  toolCallId: string
+): Promise<ToolResult> {
+  const { insight_text, insight_type } = args;
+
+  if (!insight_text || insight_text.length > 300) {
+    return {
+      tool_call_id: toolCallId,
+      role: 'tool',
+      name: 'generate_session_insight',
+      content: 'Error: insight_text is required and must be 300 characters or less'
+    };
+  }
+
+  const { error } = await supabase
+    .from('session_insights')
+    .insert({
+      session_id: sessionId,
+      insight_text,
+      insight_type: insight_type || 'coach'
+    });
+
+  if (error) {
+    return {
+      tool_call_id: toolCallId,
+      role: 'tool',
+      name: 'generate_session_insight',
+      content: `Error storing insight: ${error.message}`
+    };
+  }
+
+  return {
+    tool_call_id: toolCallId,
+    role: 'tool',
+    name: 'generate_session_insight',
+    content: 'Insight saved successfully'
   };
 }

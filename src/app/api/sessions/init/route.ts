@@ -23,7 +23,7 @@ async function handleSessionInit(request: NextRequest, context: SecurityContext)
     // Verify user owns this session and get lock status
     const { data: session, error: sessionError } = await supabase
       .from('therapy_sessions')
-      .select('session_id, title, created_at, user_id, is_locked, locked_at, locked_by, lock_reason, can_unlock')
+      .select('session_id, title, created_at, user_id, session_type, is_locked, locked_at, locked_by, lock_reason, can_unlock')
       .eq('session_id', sessionId)
       .single();
 
@@ -132,12 +132,23 @@ What are your main wellness goals? What would you like to work on?`,
       });
     }
 
+    const { data: insights, error: insightsError } = await supabase
+      .from('session_insights')
+      .select('id, session_id, insight_text, insight_type, created_at, created_by')
+      .eq('session_id', sessionId)
+      .order('created_at', { ascending: false });
+
+    if (insightsError) {
+      console.error('Error fetching insights:', insightsError);
+    }
+
     return NextResponse.json({
       success: true,
       session: {
         id: session.session_id,
         title: session.title,
         created_at: session.created_at,
+        session_type: session.session_type,
         is_locked: session.is_locked || false,
         locked_at: session.locked_at,
         locked_by: session.locked_by,
@@ -145,6 +156,7 @@ What are your main wellness goals? What would you like to work on?`,
         can_unlock: session.can_unlock,
       },
       messages: formattedMessages,
+      insights: insights || [],
       userSubscription: userData.subscription_tier,
       isFirstSession,
     });

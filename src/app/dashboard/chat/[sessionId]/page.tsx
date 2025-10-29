@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Clock } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
-import { ChatMessage } from '@/types';
+import { ChatMessage, SessionInsight } from '@/types';
 import SessionSidebar from '@/components/chat/SessionSidebar';
 import ContextPanel from '@/components/chat/ContextPanel';
 import SessionLockBanner from '@/components/chat/SessionLockBanner';
@@ -39,6 +39,8 @@ export default function ChatPage() {
   const [showBreakPrompt, setShowBreakPrompt] = useState(false);
   const [showEmergencyResources, setShowEmergencyResources] = useState(false);
   const [completingIntroduction, setCompletingIntroduction] = useState(false);
+  const [insights, setInsights] = useState<SessionInsight[]>([]);
+  const [generatingInsight, setGeneratingInsight] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const supabase = createClient();
   const isIntroductionLock = lockReason === 'introduction_complete';
@@ -100,6 +102,74 @@ export default function ChatPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
+  const refreshInsights = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        return;
+      }
+
+      const response = await fetch(`/api/sessions/insights/list?sessionId=${sessionId}`, {
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+      });
+
+      if (!response.ok) {
+        return;
+      }
+
+      const data = await response.json();
+      if (data.insights) {
+        setInsights(data.insights);
+      }
+    } catch (error) {
+      console.error('Error refreshing insights:', error);
+    }
+  };
+
+  const generateInsight = async (silent = false) => {
+    try {
+      setGeneratingInsight(true);
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        if (!silent) {
+          alert('Not authenticated');
+        }
+        return;
+      }
+
+      const response = await fetch('/api/sessions/insights/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ sessionId })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        if (!silent) {
+          alert(errorData.error || 'Failed to generate insight');
+        }
+        return;
+      }
+
+      const result = await response.json();
+      if (result.success && result.insight) {
+        await refreshInsights();
+      }
+    } catch (error) {
+      console.error('Error generating insight:', error);
+      if (!silent) {
+        alert('Failed to generate insight. Please try again.');
+      }
+    } finally {
+      setGeneratingInsight(false);
+    }
+  };
+
   const initializeSession = async () => {
     try {
       setInitializing(true);
@@ -138,6 +208,8 @@ export default function ChatPage() {
       setSessionStartTime(new Date(result.session.created_at));
       setUserSubscription(result.userSubscription);
       setMessages(result.messages);
+      const initialInsights: SessionInsight[] = result.insights || [];
+      setInsights(initialInsights);
       setIsSessionLocked(result.session.is_locked || false);
       const sessionLockReason = result.session.lock_reason;
       setLockReason(sessionLockReason);
@@ -156,6 +228,10 @@ export default function ChatPage() {
 
       if ((result.session.session_type === 'introduction' || sessionLockReason === 'introduction_complete') && result.session.is_locked) {
         setShowIntroductionLockedModal(true);
+      }
+
+      if (initialInsights.length === 0 && result.messages.length > 0) {
+        await generateInsight(true);
       }
 
     } catch (error) {
@@ -215,6 +291,8 @@ Ready to start your first regular wellness session?`,
         setIsIntroductionSession(false);
         setIsSessionLocked(true);
         setLockReason('introduction_complete');
+        await refreshInsights();
+        await generateInsight(true);
         
         // Update session title
         setSessionTitle('Introduction Complete - Goals Set');
@@ -346,6 +424,8 @@ Ready to start your first regular wellness session?`,
             : msg
         ));
       }
+
+      await refreshInsights();
       
       // Check if we should show complete introduction button after this message
       if (isIntroductionSession && !showCompleteIntroduction) {
@@ -721,10 +801,13 @@ Ready to start your first regular wellness session?`,
           <div className="hidden xl:block overflow-y-auto rounded-3xl">
             <ContextPanel
               messages={messages}
+              insights={insights}
               isLocked={isSessionLocked}
               lockReason={lockReason}
               showEmergencyResources={showEmergencyResources}
               onCloseEmergencyResources={handleCloseEmergencyResources}
+              onGenerateInsight={() => generateInsight(false)}
+              generatingInsight={generatingInsight}
             />
           </div>
         </div>

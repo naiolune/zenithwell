@@ -1,6 +1,6 @@
 "use client"
 
-import { ChatMessage } from '@/types'
+import { ChatMessage, SessionInsight } from '@/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -10,29 +10,37 @@ import { cn } from '@/lib/utils'
 
 interface ContextPanelProps {
   messages: ChatMessage[]
+  insights?: SessionInsight[]
   isLocked: boolean
   lockReason?: string | null
   showEmergencyResources: boolean
   onCloseEmergencyResources?: () => void
+  onGenerateInsight?: () => void
+  generatingInsight?: boolean
   className?: string
 }
 
 export function ContextPanel({
   messages,
+  insights,
   isLocked,
   lockReason,
   showEmergencyResources,
   onCloseEmergencyResources,
+  onGenerateInsight,
+  generatingInsight,
   className,
 }: ContextPanelProps) {
   const coachMessages = messages.filter(m => m.sender === 'ai')
-  const latestInsights = coachMessages
-    .slice(-3)
-    .reverse()
-    .map((msg, index) => ({
-      id: msg.id ?? `coach-${index}`,
-      content: msg.content,
-    }))
+  const latestInsights = (insights && insights.length > 0
+    ? insights.slice(0, 3).map(insight => ({ id: insight.id, content: insight.insight_text }))
+    : coachMessages
+        .slice(-3)
+        .reverse()
+        .map((msg, index) => ({
+          id: msg.id ?? `coach-${index}`,
+          content: msg.content,
+        })))
 
   return (
     <aside
@@ -66,10 +74,22 @@ export function ContextPanel({
       ) : (
         <Card className="border-none shadow-none">
           <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-2">
-              <Lightbulb className="h-4 w-4 text-amber-500" />
-              Session insights
-            </CardTitle>
+            <div className="flex items-center justify-between gap-2">
+              <CardTitle className="text-sm font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-2">
+                <Lightbulb className="h-4 w-4 text-amber-500" />
+                Session insights
+              </CardTitle>
+              {onGenerateInsight && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={onGenerateInsight}
+                  disabled={generatingInsight}
+                >
+                  {generatingInsight ? 'Generating…' : 'Generate insight'}
+                </Button>
+              )}
+            </div>
           </CardHeader>
           <CardContent className="space-y-3">
             {latestInsights.length === 0 ? (

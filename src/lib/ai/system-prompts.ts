@@ -64,6 +64,7 @@ RESPONSE GUIDELINES:
 - Focus on one key point per response
 - Ask one focused question at a time
 - Avoid lengthy explanations unless specifically requested
+- When a meaningful reflection emerges, capture it using generate_session_insight (max 300 chars)
 
 TOOL USAGE GUIDELINES:
 You have access to several tools to help manage session data and user information:
