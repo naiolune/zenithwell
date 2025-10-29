@@ -238,18 +238,12 @@ export class ServerAIService {
           content 
         };
       } else if (config.provider === 'perplexity') {
-        const stream = await provider.chat.completions.create({
+        const completion = await provider.chat.completions.create({
           model: config.model,
           messages: allMessages as any,
-          stream: true,
         });
 
-        let content = '';
-        for await (const chunk of stream) {
-          if (chunk.choices[0]?.delta?.content) {
-            content += chunk.choices[0].delta.content;
-          }
-        }
+        const content = completion.choices[0]?.message?.content || 'No response generated';
 
         // Extract goals from first session if needed
         if (isFirstSession && userId && content) {
@@ -300,20 +294,11 @@ export class ServerAIService {
         });
         return { success: !!response.content[0]?.text };
       } else if (provider === 'perplexity') {
-        const stream = await aiProvider.chat.completions.create({
+        const completion = await aiProvider.chat.completions.create({
           model: model,
           messages: testMessages as any,
-          stream: true,
         });
-
-        let hasContent = false;
-        for await (const chunk of stream) {
-          if (chunk.choices[0]?.delta?.content) {
-            hasContent = true;
-            break;
-          }
-        }
-        return { success: hasContent };
+        return { success: !!completion.choices[0]?.message?.content };
       } else {
         throw new Error(`Unsupported provider: ${provider}`);
       }
