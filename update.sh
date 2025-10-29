@@ -43,7 +43,7 @@ echo "✅ Build successful"
 
 # Restart PM2
 echo "🔄 Restarting PM2..."
-pm2 restart all
+pm2 restart zenithwell
 
 if [ $? -ne 0 ]; then
     echo "❌ PM2 restart failed!"

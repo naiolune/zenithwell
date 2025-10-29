@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Test the auth validator
-    const authResult = await AuthValidator.validateToken(token);
+    const authResult = await AuthValidator.validateAuth(authHeader);
     console.log('Auth validator result:', authResult);
 
     return NextResponse.json({ 
