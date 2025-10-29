@@ -250,8 +250,16 @@ export class ServerAIService {
         
         console.log(`Using token limit: ${tokenLimit} for model: ${config.model}`);
         
-        // Get tools for function calling
-        const tools = getAITools();
+        // Get tools for function calling and format for OpenAI API
+        const rawTools = getAITools();
+        const tools = rawTools.map(tool => ({
+          type: tool.type,
+          function: {
+            name: tool.name,
+            description: tool.description,
+            parameters: tool.parameters
+          }
+        }));
         
         const response = await provider.chat.completions.create({
           model: config.model,
