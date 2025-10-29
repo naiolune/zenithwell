@@ -28,7 +28,7 @@ async function handleSessionDelete(request: NextRequest, context: SecurityContex
     // Verify user owns this session
     const { data: session, error: sessionError } = await supabase
       .from('therapy_sessions')
-      .select('session_id, user_id')
+      .select('session_id, user_id, session_type')
       .eq('session_id', sessionId)
       .single();
 
@@ -38,6 +38,27 @@ async function handleSessionDelete(request: NextRequest, context: SecurityContex
 
     if (session.user_id !== context.user.id) {
       return NextResponse.json({ error: 'Access denied to this session' }, { status: 403 });
+    }
+
+    // Special validation for introduction sessions
+    if (session.session_type === 'introduction') {
+      // Check if user has other sessions
+      const { data: otherSessions, error: otherSessionsError } = await supabase
+        .from('therapy_sessions')
+        .select('session_id')
+        .eq('user_id', context.user.id)
+        .neq('session_id', sessionId);
+
+      if (otherSessionsError) {
+        return NextResponse.json({ error: 'Failed to validate session deletion' }, { status: 500 });
+      }
+
+      if (otherSessions && otherSessions.length > 0) {
+        return NextResponse.json({ 
+          error: 'Introduction sessions cannot be deleted if you have other sessions. Please delete your other sessions first.',
+          code: 'INTRODUCTION_DELETE_RESTRICTED'
+        }, { status: 400 });
+      }
     }
 
     // Delete the session (cascade will handle related records)

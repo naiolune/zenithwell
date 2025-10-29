@@ -22,10 +22,16 @@ import {
   Activity,
   TrendingUp,
   BarChart3,
-  Database
+  Database,
+  Lock,
+  Unlock,
+  Flag,
+  AlertTriangle,
+  FileText,
+  Settings
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
-import { User } from '@/types';
+import { User, WellnessSession, SessionFlag, UserPreference, AISessionNote } from '@/types';
 
 interface UserStats {
   totalSessions: number;
@@ -44,11 +50,25 @@ export default function AdminSupportPage() {
   const [loading, setLoading] = useState(true);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [updating, setUpdating] = useState(false);
+  const [activeTab, setActiveTab] = useState<'users' | 'sessions'>('users');
+  const [sessions, setSessions] = useState<WellnessSession[]>([]);
+  const [sessionFlags, setSessionFlags] = useState<SessionFlag[]>([]);
+  const [userPreferences, setUserPreferences] = useState<Record<string, UserPreference[]>>({});
+  const [aiNotes, setAiNotes] = useState<Record<string, AISessionNote[]>>({});
+  const [suspending, setSuspending] = useState(false);
+  const [showSuspendModal, setShowSuspendModal] = useState(false);
+  const [selectedUserForSuspension, setSelectedUserForSuspension] = useState<User | null>(null);
+  const [suspendReason, setSuspendReason] = useState('');
+  const [suspendNotes, setSuspendNotes] = useState('');
   const supabase = createClient();
 
   useEffect(() => {
     fetchUsers();
-  }, []);
+    if (activeTab === 'sessions') {
+      fetchSessions();
+      fetchSessionFlags();
+    }
+  }, [activeTab]);
 
   useEffect(() => {
     filterUsers();
@@ -167,6 +187,216 @@ export default function AdminSupportPage() {
     setUserStats(stats);
   };
 
+  const fetchSessions = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('therapy_sessions')
+        .select(`
+          *,
+          users!therapy_sessions_user_id_fkey(email)
+        `)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Error fetching sessions:', error);
+      } else {
+        setSessions(data || []);
+      }
+    } catch (error) {
+      console.error('Error:', error);
+    }
+  };
+
+  const fetchSessionFlags = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('session_flags')
+        .select(`
+          *,
+          therapy_sessions!session_flags_session_id_fkey(title, session_type),
+          users!session_flags_user_id_fkey(email)
+        `)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Error fetching session flags:', error);
+      } else {
+        setSessionFlags(data || []);
+      }
+    } catch (error) {
+      console.error('Error:', error);
+    }
+  };
+
+  const fetchUserPreferences = async (userId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('user_preferences')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Error fetching user preferences:', error);
+      } else {
+        setUserPreferences(prev => ({
+          ...prev,
+          [userId]: data || []
+        }));
+      }
+    } catch (error) {
+      console.error('Error:', error);
+    }
+  };
+
+  const fetchAISessionNotes = async (sessionId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('ai_session_notes')
+        .select('*')
+        .eq('session_id', sessionId)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Error fetching AI session notes:', error);
+      } else {
+        setAiNotes(prev => ({
+          ...prev,
+          [sessionId]: data || []
+        }));
+      }
+    } catch (error) {
+      console.error('Error:', error);
+    }
+  };
+
+  const unlockSession = async (sessionId: string) => {
+    setUpdating(true);
+    try {
+      const { error } = await supabase
+        .from('therapy_sessions')
+        .update({
+          is_locked: false,
+          locked_at: null,
+          locked_by: null,
+          lock_reason: null,
+          can_unlock: true
+        })
+        .eq('session_id', sessionId);
+
+      if (error) {
+        console.error('Error unlocking session:', error);
+        alert('Failed to unlock session');
+      } else {
+        alert('Session unlocked successfully');
+        fetchSessions();
+      }
+    } catch (error) {
+      console.error('Error:', error);
+      alert('Failed to unlock session');
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const resolveFlag = async (flagId: string) => {
+    setUpdating(true);
+    try {
+      const { error } = await supabase
+        .from('session_flags')
+        .update({
+          resolved: true,
+          resolved_at: new Date().toISOString(),
+          resolved_by: (await supabase.auth.getUser()).data.user?.id
+        })
+        .eq('id', flagId);
+
+      if (error) {
+        console.error('Error resolving flag:', error);
+        alert('Failed to resolve flag');
+      } else {
+        alert('Flag resolved successfully');
+        fetchSessionFlags();
+      }
+    } catch (error) {
+      console.error('Error:', error);
+      alert('Failed to resolve flag');
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const suspendUser = async (userId: string, reason: string, notes: string) => {
+    setSuspending(true);
+    try {
+      const response = await fetch('/api/admin/suspend-user', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId,
+          action: 'suspend',
+          reason,
+          notes
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to suspend user');
+      }
+
+      alert('User suspended successfully');
+      fetchUsers();
+      setShowSuspendModal(false);
+      setSelectedUserForSuspension(null);
+      setSuspendReason('');
+      setSuspendNotes('');
+    } catch (error) {
+      console.error('Error suspending user:', error);
+      alert(`Failed to suspend user: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setSuspending(false);
+    }
+  };
+
+  const unsuspendUser = async (userId: string) => {
+    setSuspending(true);
+    try {
+      const response = await fetch('/api/admin/suspend-user', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId,
+          action: 'unsuspend'
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to unsuspend user');
+      }
+
+      alert('User unsuspended successfully');
+      fetchUsers();
+    } catch (error) {
+      console.error('Error unsuspending user:', error);
+      alert(`Failed to unsuspend user: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setSuspending(false);
+    }
+  };
+
+  const handleSuspendClick = (user: User) => {
+    setSelectedUserForSuspension(user);
+    setShowSuspendModal(true);
+  };
+
   const filterUsers = () => {
     if (!searchTerm) {
       setFilteredUsers(users);
@@ -256,6 +486,7 @@ export default function AdminSupportPage() {
     const totalUsers = users.length;
     const proUsers = users.filter(u => u.subscription_tier === 'pro').length;
     const freeUsers = totalUsers - proUsers;
+    const suspendedUsers = users.filter(u => u.is_suspended).length;
     const recentUsers = users.filter(u => {
       const userDate = new Date(u.created_at);
       const weekAgo = new Date();
@@ -263,7 +494,7 @@ export default function AdminSupportPage() {
       return userDate > weekAgo;
     }).length;
 
-    return { totalUsers, proUsers, freeUsers, recentUsers };
+    return { totalUsers, proUsers, freeUsers, suspendedUsers, recentUsers };
   };
 
   const stats = getStats();
@@ -281,12 +512,40 @@ export default function AdminSupportPage() {
       <div>
         <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Admin Support Panel</h1>
         <p className="text-gray-600 dark:text-gray-400 mt-2">
-          Manage users, grant Pro access, and handle support requests
+          Manage users, sessions, and handle support requests
         </p>
       </div>
 
-      {/* Stats Overview */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+      {/* Tab Navigation */}
+      <div className="flex space-x-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-lg">
+        <button
+          onClick={() => setActiveTab('users')}
+          className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
+            activeTab === 'users'
+              ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
+              : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+          }`}
+        >
+          <Users className="h-4 w-4 inline mr-2" />
+          Users
+        </button>
+        <button
+          onClick={() => setActiveTab('sessions')}
+          className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
+            activeTab === 'sessions'
+              ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
+              : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+          }`}
+        >
+          <MessageCircle className="h-4 w-4 inline mr-2" />
+          Sessions
+        </button>
+      </div>
+
+      {activeTab === 'users' && (
+        <>
+          {/* Stats Overview */}
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
         <Card>
           <CardContent className="p-6">
             <div className="flex items-center">
@@ -330,6 +589,18 @@ export default function AdminSupportPage() {
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-600 dark:text-gray-400">New This Week</p>
                 <p className="text-2xl font-bold text-gray-900 dark:text-white">{stats.recentUsers}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center">
+              <Shield className="h-8 w-8 text-red-600" />
+              <div className="ml-4">
+                <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Suspended Users</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white">{stats.suspendedUsers}</p>
               </div>
             </div>
           </CardContent>
@@ -380,9 +651,16 @@ export default function AdminSupportPage() {
                       </div>
                     </div>
                     <div className="flex items-center space-x-4">
-                      <Badge variant={user.subscription_tier === 'pro' ? 'default' : 'secondary'}>
-                        {user.subscription_tier === 'pro' ? 'Pro' : 'Free'}
-                      </Badge>
+                      <div className="flex space-x-2">
+                        <Badge variant={user.subscription_tier === 'pro' ? 'default' : 'secondary'}>
+                          {user.subscription_tier === 'pro' ? 'Pro' : 'Free'}
+                        </Badge>
+                        {user.is_suspended && (
+                          <Badge variant="destructive">
+                            Suspended
+                          </Badge>
+                        )}
+                      </div>
                       <div className="flex space-x-2">
                         <Button
                           size="sm"
@@ -392,6 +670,29 @@ export default function AdminSupportPage() {
                           <Eye className="h-4 w-4 mr-1" />
                           View
                         </Button>
+                        {!user.is_admin && (
+                          user.is_suspended ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => unsuspendUser(user.user_id)}
+                              disabled={suspending}
+                            >
+                              <Shield className="h-4 w-4 mr-1" />
+                              Unsuspend
+                            </Button>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              onClick={() => handleSuspendClick(user)}
+                              disabled={suspending}
+                            >
+                              <Shield className="h-4 w-4 mr-1" />
+                              Suspend
+                            </Button>
+                          )
+                        )}
                         {user.subscription_tier === 'free' ? (
                           <Button
                             size="sm"
@@ -503,6 +804,275 @@ export default function AdminSupportPage() {
             </CardContent>
           </Card>
         </div>
+      )}
+
+      {/* Suspension Modal */}
+      {showSuspendModal && selectedUserForSuspension && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <Card className="w-full max-w-md">
+            <CardHeader>
+              <CardTitle>Suspend User</CardTitle>
+              <CardDescription>
+                Suspend user: {selectedUserForSuspension.email}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Reason for Suspension *
+                </label>
+                <textarea
+                  value={suspendReason}
+                  onChange={(e) => setSuspendReason(e.target.value)}
+                  placeholder="Enter reason for suspension..."
+                  className="w-full mt-1 p-2 border border-gray-300 rounded-md dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                  rows={3}
+                  maxLength={500}
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  {suspendReason.length}/500 characters
+                </p>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Additional Notes (Optional)
+                </label>
+                <textarea
+                  value={suspendNotes}
+                  onChange={(e) => setSuspendNotes(e.target.value)}
+                  placeholder="Additional notes for internal use..."
+                  className="w-full mt-1 p-2 border border-gray-300 rounded-md dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                  rows={2}
+                  maxLength={1000}
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  {suspendNotes.length}/1000 characters
+                </p>
+              </div>
+              <div className="flex space-x-2 pt-4">
+                <Button
+                  onClick={() => {
+                    setShowSuspendModal(false);
+                    setSelectedUserForSuspension(null);
+                    setSuspendReason('');
+                    setSuspendNotes('');
+                  }}
+                  variant="outline"
+                  className="flex-1"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => suspendUser(selectedUserForSuspension.user_id, suspendReason, suspendNotes)}
+                  disabled={suspending || !suspendReason.trim()}
+                  variant="destructive"
+                  className="flex-1"
+                >
+                  {suspending ? 'Suspending...' : 'Suspend User'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+        </>
+      )}
+
+      {activeTab === 'sessions' && (
+        <>
+          {/* Session Stats */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+            <Card>
+              <CardContent className="p-6">
+                <div className="flex items-center">
+                  <MessageCircle className="h-8 w-8 text-blue-600" />
+                  <div className="ml-4">
+                    <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Sessions</p>
+                    <p className="text-2xl font-bold text-gray-900 dark:text-white">{sessions.length}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="p-6">
+                <div className="flex items-center">
+                  <Lock className="h-8 w-8 text-red-600" />
+                  <div className="ml-4">
+                    <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Locked Sessions</p>
+                    <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                      {sessions.filter(s => s.is_locked).length}
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="p-6">
+                <div className="flex items-center">
+                  <Flag className="h-8 w-8 text-yellow-600" />
+                  <div className="ml-4">
+                    <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Active Flags</p>
+                    <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                      {sessionFlags.filter(f => !f.resolved).length}
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="p-6">
+                <div className="flex items-center">
+                  <AlertTriangle className="h-8 w-8 text-orange-600" />
+                  <div className="ml-4">
+                    <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Escalations</p>
+                    <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                      {sessionFlags.filter(f => f.flag_type === 'escalate' && !f.resolved).length}
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Locked Sessions */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Locked Sessions</CardTitle>
+              <CardDescription>
+                Sessions that have been locked by AI or admin
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {sessions.filter(s => s.is_locked).map((session) => (
+                  <Card key={session.session_id} className="hover:shadow-md transition-shadow">
+                    <CardContent className="p-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-4">
+                          <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+                            <Lock className="h-5 w-5 text-red-600" />
+                          </div>
+                          <div>
+                            <p className="font-medium text-gray-900 dark:text-white">{session.title}</p>
+                            <p className="text-sm text-gray-600 dark:text-gray-400">
+                              User: {(session as any).users?.email || 'Unknown'}
+                            </p>
+                            <p className="text-sm text-gray-500 dark:text-gray-400">
+                              Locked: {formatDate(session.locked_at || session.created_at)} | 
+                              Reason: {session.lock_reason} | 
+                              Type: {session.session_type}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex space-x-2">
+                          {session.can_unlock && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => unlockSession(session.session_id)}
+                              disabled={updating}
+                            >
+                              <Unlock className="h-4 w-4 mr-1" />
+                              Unlock
+                            </Button>
+                          )}
+                          {!session.can_unlock && (
+                            <Badge variant="secondary">
+                              Cannot Unlock
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+                {sessions.filter(s => s.is_locked).length === 0 && (
+                  <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+                    <Lock className="h-12 w-12 mx-auto mb-4 text-gray-400" />
+                    <p>No locked sessions</p>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Session Flags */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Session Flags</CardTitle>
+              <CardDescription>
+                Sessions flagged for review, escalation, or check-ins
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {sessionFlags.map((flag) => (
+                  <Card key={flag.id} className="hover:shadow-md transition-shadow">
+                    <CardContent className="p-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-4">
+                          <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                            flag.flag_type === 'escalate' ? 'bg-red-100' :
+                            flag.flag_type === 'review' ? 'bg-yellow-100' :
+                            flag.flag_type === 'check_in' ? 'bg-blue-100' :
+                            'bg-green-100'
+                          }`}>
+                            {flag.flag_type === 'escalate' ? <AlertTriangle className="h-5 w-5 text-red-600" /> :
+                             flag.flag_type === 'review' ? <Flag className="h-5 w-5 text-yellow-600" /> :
+                             flag.flag_type === 'check_in' ? <Clock className="h-5 w-5 text-blue-600" /> :
+                             <CheckCircle className="h-5 w-5 text-green-600" />}
+                          </div>
+                          <div>
+                            <p className="font-medium text-gray-900 dark:text-white">
+                              {(flag as any).therapy_sessions?.title || 'Unknown Session'}
+                            </p>
+                            <p className="text-sm text-gray-600 dark:text-gray-400">
+                              User: {(flag as any).users?.email || 'Unknown'}
+                            </p>
+                            <p className="text-sm text-gray-500 dark:text-gray-400">
+                              Type: {flag.flag_type} | 
+                              Created: {formatDate(flag.created_at)}
+                            </p>
+                            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                              {flag.flag_reason}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex space-x-2">
+                          {!flag.resolved && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => resolveFlag(flag.id)}
+                              disabled={updating}
+                            >
+                              <CheckCircle className="h-4 w-4 mr-1" />
+                              Resolve
+                            </Button>
+                          )}
+                          {flag.resolved && (
+                            <Badge variant="secondary">
+                              Resolved
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+                {sessionFlags.length === 0 && (
+                  <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+                    <Flag className="h-12 w-12 mx-auto mb-4 text-gray-400" />
+                    <p>No session flags</p>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </>
       )}
     </div>
   );

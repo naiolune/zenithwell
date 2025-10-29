@@ -145,12 +145,21 @@ async function handleChatRequest(request: NextRequest, context: SecurityContext)
     // Verify user owns or can access this session
     const { data: session, error: sessionError } = await supabase
       .from('therapy_sessions')
-      .select('user_id')
+      .select('user_id, is_locked, lock_reason')
       .eq('session_id', sessionId)
       .single();
 
     if (sessionError || !session) {
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+    }
+
+    // Check if session is locked
+    if (session.is_locked) {
+      return NextResponse.json({ 
+        error: 'This session has been locked for your safety. Please contact support if you need assistance.',
+        sessionLocked: true,
+        lockReason: session.lock_reason
+      }, { status: 423 }); // 423 Locked
     }
 
     // Check if user owns the session or is a participant

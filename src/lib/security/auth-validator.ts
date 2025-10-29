@@ -53,7 +53,7 @@ export class AuthValidator {
       // Get user profile from our users table
       const { data: userProfile, error: profileError } = await supabase
         .from('users')
-        .select('subscription_tier, is_admin')
+        .select('subscription_tier, is_admin, is_suspended, suspension_reason')
         .eq('user_id', user.id)
         .single();
 
@@ -62,6 +62,15 @@ export class AuthValidator {
           isValid: false,
           error: 'User profile not found',
           errorCode: 'USER_NOT_FOUND',
+        };
+      }
+
+      // Check if user is suspended
+      if (userProfile.is_suspended) {
+        return {
+          isValid: false,
+          error: 'Your account has been suspended. Please contact support for assistance.',
+          errorCode: 'ACCOUNT_SUSPENDED',
         };
       }
 

@@ -165,12 +165,17 @@ Make the goals specific, measurable, and relevant to their responses. Focus on w
       return NextResponse.json({ error: 'Failed to store goals' }, { status: 500 });
     }
 
-    // Update the session summary with the extracted summary
+    // Update the session summary and lock the introduction session
     const { error: updateError } = await supabase
       .from('therapy_sessions')
       .update({
         session_summary: summary,
-        title: 'Introduction Complete - Goals Set'
+        title: 'Introduction Complete - Goals Set',
+        is_locked: true,
+        locked_at: new Date().toISOString(),
+        locked_by: 'ai',
+        lock_reason: 'introduction_complete',
+        can_unlock: false
       })
       .eq('session_id', sessionId);
 

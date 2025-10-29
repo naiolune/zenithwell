@@ -306,6 +306,15 @@ export const SecurityConfigs = {
     requireCSRF: false,
   },
 
+  // Admin API endpoints - admin only, with rate limiting
+  ADMIN_API: {
+    requireAuth: true,
+    requireAdmin: true,
+    rateLimitType: 'general_api' as const,
+    trackSuspiciousActivity: true,
+    requireCSRF: false,
+  },
+
   // Public endpoints - no auth required
   PUBLIC: {
     requireAuth: false,
