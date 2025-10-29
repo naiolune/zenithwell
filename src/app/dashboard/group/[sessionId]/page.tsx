@@ -47,6 +47,7 @@ export default function GroupSessionPage() {
   const [isReady, setIsReady] = useState(false);
   const [waitingForParticipants, setWaitingForParticipants] = useState(false);
   const [sessionWaiting, setSessionWaiting] = useState(false);
+  const [messageTimeouts, setMessageTimeouts] = useState<Map<string, NodeJS.Timeout>>(new Map());
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const supabase = createClient();
@@ -57,13 +58,15 @@ export default function GroupSessionPage() {
     fetchMessages();
     startHeartbeat();
     setupRealtimeSubscription();
-    
+
     return () => {
       if (heartbeatIntervalRef.current) {
         clearInterval(heartbeatIntervalRef.current);
       }
+      // Cleanup message timeouts
+      messageTimeouts.forEach(timeout => clearTimeout(timeout));
     };
-  }, [sessionId]);
+  }, [sessionId, messageTimeouts]);
 
   useEffect(() => {
     scrollToBottom();
@@ -247,20 +250,74 @@ export default function GroupSessionPage() {
     }
   };
 
-  const sendMessage = async () => {
-    if (!inputMessage.trim() || loading) return;
+  // Set up timeout to detect if AI doesn't respond to a user message
+  const setupMessageTimeout = (messageId: string) => {
+    const timeout = setTimeout(() => {
+      setMessages(prev => prev.map(msg => 
+        msg.id === messageId && msg.sender === 'user'
+          ? { ...msg, needsResend: true }
+          : msg
+      ));
+      setMessageTimeouts(prev => {
+        const newMap = new Map(prev);
+        newMap.delete(messageId);
+        return newMap;
+      });
+    }, 10000); // 10 second timeout
+
+    setMessageTimeouts(prev => new Map(prev.set(messageId, timeout)));
+  };
+
+  // Clear timeout when AI responds
+  const clearMessageTimeout = (messageId: string) => {
+    const timeout = messageTimeouts.get(messageId);
+    if (timeout) {
+      clearTimeout(timeout);
+      setMessageTimeouts(prev => {
+        const newMap = new Map(prev);
+        newMap.delete(messageId);
+        return newMap;
+      });
+    }
+  };
+
+  const handleResendMessage = (message: ChatMessage) => {
+    sendMessage(message);
+  };
+
+  const sendMessage = async (messageToResend?: ChatMessage) => {
+    const messageContent = messageToResend ? messageToResend.content : inputMessage;
+    if (!messageContent.trim() || loading) return;
 
     const userMessage: ChatMessage = {
-      id: Date.now().toString(),
-      content: inputMessage,
+      id: messageToResend ? messageToResend.id : Date.now().toString(),
+      content: messageContent,
       sender: 'user',
       timestamp: new Date(),
+      needsResend: false,
+      isResending: !!messageToResend,
+      resendCount: messageToResend ? (messageToResend.resendCount || 0) + 1 : 0,
     };
 
-    setMessages(prev => [...prev, userMessage]);
-    const messageToSend = inputMessage;
-    setInputMessage('');
+    if (messageToResend) {
+      // Update existing message
+      setMessages(prev => prev.map(msg => 
+        msg.id === messageToResend.id 
+          ? { ...msg, isResending: true, needsResend: false, resendCount: userMessage.resendCount }
+          : msg
+      ));
+      // Clear any existing timeout for this message
+      clearMessageTimeout(messageToResend.id);
+    } else {
+      // Add new message
+      setMessages(prev => [...prev, userMessage]);
+      setInputMessage('');
+    }
+    
     setLoading(true);
+    
+    // Set up timeout for user message
+    setupMessageTimeout(userMessage.id);
 
     try {
       const response = await fetch('/api/ai/chat', {
@@ -270,7 +327,7 @@ export default function GroupSessionPage() {
         },
         body: JSON.stringify({
           sessionId,
-          message: messageToSend,
+          message: messageContent,
         }),
       });
 
@@ -305,8 +362,38 @@ export default function GroupSessionPage() {
       };
       setMessages(prev => [...prev, aiMessage]);
 
+      // Clear timeout and mark the user message as successfully sent
+      clearMessageTimeout(userMessage.id);
+      if (messageToResend) {
+        setMessages(prev => prev.map(msg => 
+          msg.id === messageToResend.id 
+            ? { ...msg, isResending: false, needsResend: false }
+            : msg
+        ));
+      }
+
     } catch (error) {
       console.error('Error sending message:', error);
+      
+      // Clear timeout since we're handling the error
+      clearMessageTimeout(userMessage.id);
+      
+      // Mark user message as needing resend
+      if (messageToResend) {
+        setMessages(prev => prev.map(msg => 
+          msg.id === messageToResend.id 
+            ? { ...msg, isResending: false, needsResend: true }
+            : msg
+        ));
+      } else {
+        // For new messages, mark the last user message as needing resend
+        setMessages(prev => prev.map((msg, index) => 
+          index === prev.length - 1 && msg.sender === 'user'
+            ? { ...msg, needsResend: true }
+            : msg
+        ));
+      }
+      
       // Add error message
       const errorMessage: ChatMessage = {
         id: Date.now().toString(),
@@ -425,15 +512,45 @@ export default function GroupSessionPage() {
                 key={message.id}
                 className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}
               >
-                <Card className={`max-w-xs lg:max-w-md ${
-                  message.sender === 'user' 
-                    ? 'bg-blue-600 text-white' 
-                    : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-200'
-                }`}>
-                  <CardContent className="p-3">
-                    <p className="text-sm whitespace-pre-wrap">{message.content}</p>
-                  </CardContent>
-                </Card>
+                <div className="flex flex-col space-y-2">
+                  <Card className={`max-w-xs lg:max-w-md ${
+                    message.sender === 'user' 
+                      ? 'bg-blue-600 text-white' 
+                      : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-200'
+                  }`}>
+                    <CardContent className="p-3">
+                      <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                    </CardContent>
+                  </Card>
+                  {message.sender === 'user' && message.needsResend && (
+                    <div className="flex justify-end">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleResendMessage(message)}
+                        disabled={loading || message.isResending}
+                        className="text-xs px-2 py-1 h-6 bg-red-50 hover:bg-red-100 border-red-200 text-red-600 dark:bg-red-900/20 dark:hover:bg-red-900/30 dark:border-red-800 dark:text-red-400"
+                      >
+                        {message.isResending ? (
+                          <>
+                            <div className="w-3 h-3 border border-red-400 border-t-transparent rounded-full animate-spin mr-1"></div>
+                            Resending...
+                          </>
+                        ) : (
+                          <>
+                            <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                            </svg>
+                            Resend
+                            {message.resendCount && message.resendCount > 0 && (
+                              <span className="ml-1 text-xs">({message.resendCount})</span>
+                            )}
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  )}
+                </div>
               </div>
             ))
           )}

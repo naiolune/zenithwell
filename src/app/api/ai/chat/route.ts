@@ -293,8 +293,27 @@ async function handleChatRequest(request: NextRequest, context: SecurityContext)
         content: msg.content
       }));
 
+    // Validate message sequence - ensure no consecutive messages of same type
+    const validatedMessages = [];
+    let lastRole = null;
+    
+    for (const msg of aiMessages) {
+      if (lastRole !== msg.role) {
+        validatedMessages.push(msg);
+        lastRole = msg.role;
+      } else {
+        // Skip consecutive messages of same type
+        console.warn(`Skipping consecutive ${msg.role} message:`, msg.content.substring(0, 50));
+      }
+    }
+
+    // Ensure we have at least one user message
+    if (!validatedMessages.some(msg => msg.role === 'user')) {
+      return NextResponse.json({ error: 'No user message found' }, { status: 400 });
+    }
+
     // Generate AI response with enhanced context
-    const aiResponse = await ServerAIService.generateResponse(aiMessages, sessionId, context.user.id);
+    const aiResponse = await ServerAIService.generateResponse(validatedMessages, sessionId, context.user.id);
 
     if (!aiResponse.success) {
       return NextResponse.json({ 

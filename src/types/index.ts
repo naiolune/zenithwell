@@ -74,6 +74,9 @@ export interface ChatMessage {
   content: string;
   sender: 'user' | 'ai';
   timestamp: Date;
+  needsResend?: boolean;
+  isResending?: boolean;
+  resendCount?: number;
 }
 
 export interface AIProvider {
