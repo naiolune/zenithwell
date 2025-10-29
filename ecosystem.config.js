@@ -9,17 +9,15 @@ module.exports = {
       exec_mode: 'cluster',
       env: {
         NODE_ENV: 'production',
-        PORT: 3000
+        PORT: 3001
       },
       env_production: {
         NODE_ENV: 'production',
-        PORT: 3000
+        PORT: 3001
       },
-      // Logging
-      log_file: '/home/kitsune/zenithwell/logs/combined.log',
-      out_file: '/home/kitsune/zenithwell/logs/out.log',
-      error_file: '/home/kitsune/zenithwell/logs/error.log',
+      // Logging - Remove custom log paths to use PM2 defaults
       log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+      merge_logs: true,
       
       // Process management
       max_memory_restart: '1G',

@@ -287,7 +287,7 @@ export const SecurityConfigs = {
     rateLimitType: 'ai_call' as const,
     trackSuspiciousActivity: true,
     allowedMethods: ['POST'],
-    requireCSRF: true,
+    requireCSRF: false,
   },
 
   // General API endpoints - standard security
@@ -295,7 +295,7 @@ export const SecurityConfigs = {
     requireAuth: true,
     rateLimitType: 'general_api' as const,
     trackSuspiciousActivity: true,
-    requireCSRF: true,
+    requireCSRF: false,
   },
 
   // Admin endpoints - admin only, no rate limiting
@@ -303,7 +303,7 @@ export const SecurityConfigs = {
     requireAuth: true,
     requireAdmin: true,
     trackSuspiciousActivity: true,
-    requireCSRF: true,
+    requireCSRF: false,
   },
 
   // Public endpoints - no auth required

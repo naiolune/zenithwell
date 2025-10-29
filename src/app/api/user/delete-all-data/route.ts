@@ -1,65 +1,100 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { withAPISecurity, SecurityConfigs, SecurityContext } from '@/middleware/api-security';
-import { InputSanitizer } from '@/lib/security/input-sanitizer';
-import { SecureErrorHandler } from '@/lib/security/error-handler';
-import { SessionInvalidator } from '@/lib/security/session-invalidator';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-async function handleDeleteAllData(request: NextRequest, context: SecurityContext): Promise<NextResponse> {
+async function handleDeleteAllData(request: NextRequest): Promise<NextResponse> {
   try {
-    if (!context.user) {
-      return SecureErrorHandler.handleAuthError('User not authenticated');
+    // Get authorization header
+    const authHeader = request.headers.get('authorization');
+    if (!authHeader) {
+      return NextResponse.json(
+        { error: 'Authorization header required' },
+        { status: 401 }
+      );
+    }
+
+    const token = authHeader.replace('Bearer ', '');
+    
+    // Verify the token with Supabase
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    
+    if (authError || !user) {
+      return NextResponse.json(
+        { error: 'Invalid or expired token' },
+        { status: 401 }
+      );
     }
 
     const { password, confirmation } = await request.json();
 
     // Validate required fields
     if (!password || !confirmation) {
-      return SecureErrorHandler.handleValidationError('Password and confirmation are required');
+      return NextResponse.json(
+        { error: 'Password and confirmation are required' },
+        { status: 400 }
+      );
     }
 
     if (confirmation !== 'DELETE ALL MY DATA') {
-      return SecureErrorHandler.handleValidationError('Invalid confirmation text');
+      return NextResponse.json(
+        { error: 'Invalid confirmation text' },
+        { status: 400 }
+      );
     }
 
     // Verify user password
-    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-      email: context.user.email,
+    const { data: authData, error: passwordError } = await supabase.auth.signInWithPassword({
+      email: user.email || '',
       password: password
     });
 
-    if (authError || !authData.user) {
-      return SecureErrorHandler.handleAuthError('Invalid password');
+    if (passwordError || !authData.user) {
+      return NextResponse.json(
+        { error: 'Invalid password' },
+        { status: 401 }
+      );
     }
 
-    const userId = context.user.id;
+    const userId = user.id;
 
     // Start transaction-like deletion process
     console.log(`Starting complete data deletion for user: ${userId}`);
 
-    // 1. Delete all session messages
+    // 1. Get all session IDs for the user first
+    const { data: sessionsData, error: sessionsSelectError } = await supabase
+      .from('therapy_sessions')
+      .select('session_id')
+      .eq('user_id', userId);
+
+    if (sessionsSelectError) {
+      console.error('Error fetching therapy sessions:', sessionsSelectError);
+      return NextResponse.json(
+        { error: 'Failed to fetch therapy sessions' },
+        { status: 500 }
+      );
+    }
+
+    const sessionIds = sessionsData?.map(s => s.session_id) || [];
+
+    // 2. Delete all session messages
     const { error: messagesError } = await supabase
       .from('session_messages')
       .delete()
-      .in('session_id', 
-        await supabase
-          .from('therapy_sessions')
-          .select('session_id')
-          .eq('user_id', userId)
-          .then(res => res.data?.map(s => s.session_id) || [])
-      );
+      .in('session_id', sessionIds);
 
     if (messagesError) {
       console.error('Error deleting session messages:', messagesError);
-      return SecureErrorHandler.handleAPIError(messagesError, 'Session messages deletion');
+      return NextResponse.json(
+        { error: 'Failed to delete session messages' },
+        { status: 500 }
+      );
     }
 
-    // 2. Delete all therapy sessions
+    // 3. Delete all therapy sessions
     const { error: sessionsError } = await supabase
       .from('therapy_sessions')
       .delete()
@@ -67,10 +102,13 @@ async function handleDeleteAllData(request: NextRequest, context: SecurityContex
 
     if (sessionsError) {
       console.error('Error deleting therapy sessions:', sessionsError);
-      return SecureErrorHandler.handleAPIError(sessionsError, 'Therapy sessions deletion');
+      return NextResponse.json(
+        { error: 'Failed to delete therapy sessions' },
+        { status: 500 }
+      );
     }
 
-    // 3. Delete all conversation memory
+    // 4. Delete all conversation memory
     const { error: memoryError } = await supabase
       .from('conversation_memory')
       .delete()
@@ -78,10 +116,13 @@ async function handleDeleteAllData(request: NextRequest, context: SecurityContex
 
     if (memoryError) {
       console.error('Error deleting conversation memory:', memoryError);
-      return SecureErrorHandler.handleAPIError(memoryError, 'Conversation memory deletion');
+      return NextResponse.json(
+        { error: 'Failed to delete conversation memory' },
+        { status: 500 }
+      );
     }
 
-    // 4. Delete all session participants (for group sessions)
+    // 5. Delete all session participants (for group sessions)
     const { error: participantsError } = await supabase
       .from('session_participants')
       .delete()
@@ -89,10 +130,13 @@ async function handleDeleteAllData(request: NextRequest, context: SecurityContex
 
     if (participantsError) {
       console.error('Error deleting session participants:', participantsError);
-      return SecureErrorHandler.handleAPIError(participantsError, 'Session participants deletion');
+      return NextResponse.json(
+        { error: 'Failed to delete session participants' },
+        { status: 500 }
+      );
     }
 
-    // 5. Delete all subscriptions
+    // 6. Delete all subscriptions
     const { error: subscriptionsError } = await supabase
       .from('subscriptions')
       .delete()
@@ -100,31 +144,35 @@ async function handleDeleteAllData(request: NextRequest, context: SecurityContex
 
     if (subscriptionsError) {
       console.error('Error deleting subscriptions:', subscriptionsError);
-      return SecureErrorHandler.handleAPIError(subscriptionsError, 'Subscriptions deletion');
+      return NextResponse.json(
+        { error: 'Failed to delete subscriptions' },
+        { status: 500 }
+      );
     }
 
-    // 6. Reset user data (keep account but clear personal data)
+    // 7. Reset user data (keep account but clear personal data)
     const { error: userUpdateError } = await supabase
       .from('users')
       .update({
         subscription_tier: 'free',
-        is_admin: false,
-        last_activity: new Date().toISOString(),
-        data_deleted_at: new Date().toISOString(),
-        security_alert: 'User requested complete data deletion'
+        is_admin: false
       })
       .eq('user_id', userId);
 
     if (userUpdateError) {
       console.error('Error updating user data:', userUpdateError);
-      return SecureErrorHandler.handleAPIError(userUpdateError, 'User data reset');
+      return NextResponse.json(
+        { error: 'Failed to reset user data' },
+        { status: 500 }
+      );
     }
 
-    // 7. Log security event
-    await SessionInvalidator.forceLogout(userId, 'User requested complete data deletion');
-
     // 8. Sign out user
-    await supabase.auth.signOut();
+    const { error: signOutError } = await supabase.auth.signOut();
+    if (signOutError) {
+      console.error('Error signing out user:', signOutError);
+      // Don't fail the entire operation for sign out errors
+    }
 
     console.log(`Complete data deletion successful for user: ${userId}`);
 
@@ -135,9 +183,13 @@ async function handleDeleteAllData(request: NextRequest, context: SecurityContex
     });
 
   } catch (error: any) {
-    return SecureErrorHandler.handleAPIError(error, 'Complete data deletion');
+    console.error('Delete all data error:', error);
+    return NextResponse.json(
+      { error: 'Internal server error during data deletion' },
+      { status: 500 }
+    );
   }
 }
 
-// Export the secured handler
-export const POST = withAPISecurity(handleDeleteAllData, SecurityConfigs.GENERAL_API);
+// Export the handler directly
+export const POST = handleDeleteAllData;
