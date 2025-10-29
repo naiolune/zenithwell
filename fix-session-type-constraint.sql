@@ -13,22 +13,37 @@ ALTER TABLE public.therapy_sessions
 ADD CONSTRAINT therapy_sessions_session_type_check 
 CHECK (session_type IN ('regular', 'introduction'));
 
--- Test the insert again
-INSERT INTO public.therapy_sessions (
-  user_id, 
-  title, 
-  is_group, 
-  session_type,
-  session_summary
-) VALUES (
-  '00000000-0000-0000-0000-000000000000'::uuid,
-  'Test Session',
-  false,
-  'introduction',
-  'Test session to verify session_type column exists'
-);
-
--- Clean up test data
-DELETE FROM public.therapy_sessions 
-WHERE user_id = '00000000-0000-0000-0000-000000000000'::uuid 
-AND title = 'Test Session';
+-- Test the insert with a valid user ID (get first user from users table)
+DO $$
+DECLARE
+    test_user_id uuid;
+BEGIN
+    -- Get a valid user ID
+    SELECT user_id INTO test_user_id FROM public.users LIMIT 1;
+    
+    IF test_user_id IS NOT NULL THEN
+        -- Test the insert
+        INSERT INTO public.therapy_sessions (
+            user_id, 
+            title, 
+            is_group, 
+            session_type,
+            session_summary
+        ) VALUES (
+            test_user_id,
+            'Test Session - Constraint Check',
+            false,
+            'introduction',
+            'Test session to verify session_type column exists'
+        );
+        
+        -- Clean up test data
+        DELETE FROM public.therapy_sessions 
+        WHERE user_id = test_user_id 
+        AND title = 'Test Session - Constraint Check';
+        
+        RAISE NOTICE 'Constraint test passed! session_type column accepts "introduction" value.';
+    ELSE
+        RAISE NOTICE 'No users found in database, skipping constraint test.';
+    END IF;
+END $$;
