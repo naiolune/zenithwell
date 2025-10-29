@@ -68,9 +68,10 @@ The title should be engaging and descriptive. The summary should highlight the m
       const OpenAI = require('openai').default;
       const openai = new OpenAI({ apiKey: aiConfig.api_key });
       
-      // Use correct token parameter for newer models
+      // Use correct token parameter for newer models with higher limits
       const isNewModel = ['gpt-5', 'gpt-4.1', 'o3', 'gpt-4o', 'gpt-4o-realtime-preview'].some(newModel => aiConfig.model.includes(newModel));
-      const tokenParam = isNewModel ? { max_completion_tokens: 200 } : { max_tokens: 200 };
+      const tokenLimit = isNewModel ? 500 : 200; // Higher limit for newer models
+      const tokenParam = isNewModel ? { max_completion_tokens: tokenLimit } : { max_tokens: tokenLimit };
       
       const response = await openai.chat.completions.create({
         model: aiConfig.model,

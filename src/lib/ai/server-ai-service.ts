@@ -41,6 +41,21 @@ export class ServerAIService {
     }
   }
 
+  private static getOpenAITokenLimit(model: string): number {
+    // Set appropriate token limits based on model capabilities
+    if (model.includes('gpt-5')) {
+      return 4000; // Higher limit for GPT-5
+    } else if (model.includes('o3')) {
+      return 4000; // Higher limit for o3
+    } else if (model.includes('gpt-4o')) {
+      return 4000; // Higher limit for GPT-4o
+    } else if (model.includes('gpt-4.1')) {
+      return 3000; // Medium limit for GPT-4.1
+    } else {
+      return 2000; // Default limit for other models
+    }
+  }
+
   private static async getActiveAIConfig() {
     const { data, error } = await supabase
       .from('ai_config')
@@ -228,10 +243,16 @@ export class ServerAIService {
       }
 
       if (config.provider === 'openai') {
+        const tokenLimit = this.getOpenAITokenLimit(config.model);
+        const tokenParam = this.getOpenAITokenParam(config.model, tokenLimit);
+        
+        console.log(`Using token limit: ${tokenLimit} for model: ${config.model}`);
+        
         const response = await provider.chat.completions.create({
           model: config.model,
           messages: allMessages as any,
           stream: true,
+          ...tokenParam,
         });
 
         let content = '';
@@ -382,7 +403,7 @@ export class ServerAIService {
       ];
 
       if (provider === 'openai') {
-        const tokenParam = this.getOpenAITokenParam(model, 1);
+        const tokenParam = this.getOpenAITokenParam(model, 10); // Use 10 tokens for test
         const response = await aiProvider.chat.completions.create({
           model: model,
           messages: testMessages as any,
