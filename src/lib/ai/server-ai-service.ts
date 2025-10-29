@@ -457,19 +457,42 @@ export class ServerAIService {
       ];
 
       if (provider === 'openai') {
-        const tokenParam = this.getOpenAITokenParam(model, 50); // Use 50 tokens for test (minimum for most models)
+        const tokenParam = this.getOpenAITokenParam(model, 100); // Use 100 tokens for test
         console.log(`Testing OpenAI connection with model: ${model}`);
         
         const response = await aiProvider.chat.completions.create({
           model: model,
           messages: testMessages as any,
           ...tokenParam,
+          tool_choice: 'none', // Disable tool calls for test to ensure text response
         });
         
-        if (!response.choices[0]?.message?.content) {
+        // Log response structure for debugging
+        console.log('OpenAI test response:', JSON.stringify({
+          choices: response.choices?.length,
+          firstChoice: response.choices?.[0] ? {
+            message: {
+              role: response.choices[0].message?.role,
+              content: response.choices[0].message?.content,
+              hasContent: !!response.choices[0].message?.content,
+              toolCalls: response.choices[0].message?.tool_calls?.length
+            }
+          } : null
+        }, null, 2));
+        
+        const message = response.choices[0]?.message;
+        if (!message) {
           return {
             success: false,
-            error: 'Received empty response from OpenAI API'
+            error: 'Received empty response from OpenAI API (no choices returned)'
+          };
+        }
+        
+        // Check for content in message
+        if (!message.content && (!message.tool_calls || message.tool_calls.length === 0)) {
+          return {
+            success: false,
+            error: 'Received empty response from OpenAI API (no content or tool calls)'
           };
         }
         
