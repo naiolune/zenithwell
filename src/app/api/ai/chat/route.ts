@@ -256,7 +256,29 @@ async function handleChatRequest(request: NextRequest, context: SecurityContext)
       }
     }
 
-    // Save user message to database
+    // Check last message BEFORE saving to prevent consecutive user messages
+    const { data: lastMessageData, error: lastMessageError } = await supabase
+      .from('session_messages')
+      .select('sender_type')
+      .eq('session_id', sessionId)
+      .order('timestamp', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (lastMessageError) {
+      console.error('Error checking last message:', lastMessageError);
+      return NextResponse.json({ error: 'Failed to validate message sequence' }, { status: 500 });
+    }
+
+    // If last message was from user, prevent saving another user message
+    if (lastMessageData && lastMessageData.sender_type === 'user') {
+      return NextResponse.json({ 
+        error: 'Please wait for AI response before sending another message',
+        code: 'CONSECUTIVE_USER_MESSAGE'
+      }, { status: 400 });
+    }
+
+    // Save user message to database (only if validation passed)
     const { data: userMessage, error: messageError } = await supabase
       .from('session_messages')
       .insert({

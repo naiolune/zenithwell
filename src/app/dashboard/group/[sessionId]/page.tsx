@@ -387,6 +387,18 @@ export default function GroupSessionPage() {
       if (!response.ok) {
         const errorData = await response.json();
         
+        // Handle consecutive user message error
+        if (errorData.code === 'CONSECUTIVE_USER_MESSAGE') {
+          // Remove the message from local state since it wasn't saved to DB
+          if (!messageToResend) {
+            setMessages(prev => prev.filter(msg => msg.id !== userMessage.id));
+          }
+          setPendingMessage(null);
+          clearMessageTimeout(userMessage.id);
+          alert('Please wait for the AI to respond before sending another message.');
+          return; // Don't add error message to chat
+        }
+        
         if (errorData.waitingForParticipants) {
           setWaitingForParticipants(true);
           return;
