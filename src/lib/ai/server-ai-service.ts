@@ -276,9 +276,33 @@ export class ServerAIService {
           content 
         };
       } else if (config.provider === 'perplexity') {
+        // Perplexity requires a single user message with concatenated content
+        const concatenatedContent = allMessages
+          .map(msg => {
+            if (msg.role === 'system') {
+              return `System: ${msg.content}`;
+            } else if (msg.role === 'assistant') {
+              return `Assistant: ${msg.content}`;
+            } else {
+              return `User: ${msg.content}`;
+            }
+          })
+          .join('\n\n');
+
+        const perplexityMessages = [{
+          role: 'user',
+          content: concatenatedContent
+        }];
+
+        console.log('=== PERPLEXITY FORMAT DEBUG ===');
+        console.log('Original messages:', allMessages.length);
+        console.log('Concatenated content:', concatenatedContent.substring(0, 200) + '...');
+        console.log('Perplexity messages:', perplexityMessages);
+        console.log('=== END PERPLEXITY FORMAT DEBUG ===');
+
         const completion = await provider.chat.completions.create({
           model: config.model,
-          messages: allMessages as any,
+          messages: perplexityMessages as any,
         });
 
         const content = completion.choices[0]?.message?.content || 'No response generated';
