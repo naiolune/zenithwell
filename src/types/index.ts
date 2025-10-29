@@ -20,7 +20,7 @@ export interface WellnessSession {
   user_id: string;
   title: string;
   is_group: boolean;
-  session_type: 'regular' | 'introduction';
+  session_type: 'individual' | 'group' | 'introduction';
   created_at: string;
   last_message_at: string;
   session_summary?: string;

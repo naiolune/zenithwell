@@ -4,14 +4,14 @@ FROM pg_constraint
 WHERE conrelid = 'public.therapy_sessions'::regclass 
 AND conname LIKE '%session_type%';
 
--- Drop the existing constraint
+-- Drop the existing constraint (it only allows individual/relationship/family/general)
 ALTER TABLE public.therapy_sessions 
 DROP CONSTRAINT IF EXISTS therapy_sessions_session_type_check;
 
--- Add the correct constraint
+-- Add the correct constraint for our new session types
 ALTER TABLE public.therapy_sessions 
 ADD CONSTRAINT therapy_sessions_session_type_check 
-CHECK (session_type IN ('regular', 'introduction'));
+CHECK (session_type IN ('individual', 'group', 'introduction'));
 
 -- Test the insert with a valid user ID (get first user from users table)
 DO $$

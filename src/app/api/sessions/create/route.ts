@@ -28,9 +28,8 @@ async function handleCreateSession(request: NextRequest, context: SecurityContex
       return NextResponse.json({ error: 'Invalid isGroup parameter' }, { status: 400 });
     }
 
-    if (!['individual', 'group'].includes(sessionType)) {
-      return NextResponse.json({ error: 'Invalid session type' }, { status: 400 });
-    }
+    // Validate session type based on isGroup parameter
+    const actualSessionType = isGroup ? 'group' : 'individual';
 
     // Get user subscription for validation
     const { data: userData, error: userError } = await supabase
@@ -128,7 +127,7 @@ Feel free to share as much or as little as you're comfortable with. Everything w
         .from('therapy_sessions')
         .select('session_id')
         .eq('user_id', context.user.id)
-        .eq('session_type', 'regular'); // Only count regular sessions, not introduction
+        .eq('session_type', 'individual'); // Only count individual sessions, not introduction
 
       if (sessionsError) {
         return NextResponse.json({ error: 'Failed to validate session count' }, { status: 500 });
@@ -152,7 +151,7 @@ Feel free to share as much or as little as you're comfortable with. Everything w
         user_id: context.user.id,
         title: sanitizedTitle,
         is_group: isGroup,
-        session_type: 'regular',
+        session_type: actualSessionType,
         created_at: new Date().toISOString(),
         last_message_at: new Date().toISOString()
       })

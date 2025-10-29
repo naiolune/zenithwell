@@ -26,7 +26,7 @@ CREATE TABLE public.therapy_sessions (
   user_id UUID REFERENCES public.users(user_id) ON DELETE CASCADE NOT NULL,
   title TEXT NOT NULL,
   is_group BOOLEAN DEFAULT false,
-  session_type TEXT DEFAULT 'regular' CHECK (session_type IN ('regular', 'introduction')),
+  session_type TEXT DEFAULT 'individual' CHECK (session_type IN ('individual', 'group', 'introduction')),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   last_message_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   session_summary TEXT
