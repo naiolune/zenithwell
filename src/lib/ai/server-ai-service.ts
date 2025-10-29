@@ -27,6 +27,20 @@ export interface AIResponse {
 }
 
 export class ServerAIService {
+  private static isNewOpenAIModel(model: string): boolean {
+    // Newer OpenAI models that use max_completion_tokens instead of max_tokens
+    const newModels = ['gpt-5', 'gpt-4.1', 'o3', 'gpt-4o', 'gpt-4o-realtime-preview'];
+    return newModels.some(newModel => model.includes(newModel));
+  }
+
+  private static getOpenAITokenParam(model: string, tokens: number) {
+    if (this.isNewOpenAIModel(model)) {
+      return { max_completion_tokens: tokens };
+    } else {
+      return { max_tokens: tokens };
+    }
+  }
+
   private static async getActiveAIConfig() {
     const { data, error } = await supabase
       .from('ai_config')
@@ -368,10 +382,11 @@ export class ServerAIService {
       ];
 
       if (provider === 'openai') {
+        const tokenParam = this.getOpenAITokenParam(model, 1);
         const response = await aiProvider.chat.completions.create({
           model: model,
           messages: testMessages as any,
-          max_tokens: 1,
+          ...tokenParam,
         });
         return { success: !!response.choices[0]?.message?.content };
       } else if (provider === 'anthropic') {
