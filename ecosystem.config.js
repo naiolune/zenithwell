@@ -5,7 +5,7 @@ module.exports = {
       script: 'npm',
       args: 'start',
       cwd: '/home/kitsune/zenithwell',
-      instances: 'max', // Use all available CPU cores
+      instances: 1, // Use single instance
       exec_mode: 'cluster',
       env: {
         NODE_ENV: 'production',
