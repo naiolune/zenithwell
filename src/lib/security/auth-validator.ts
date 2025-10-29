@@ -65,8 +65,8 @@ export class AuthValidator {
         };
       }
 
-      // Check if user is suspended
-      if (userProfile.is_suspended) {
+      // Check if user is suspended (only if suspension fields exist)
+      if (userProfile.is_suspended === true) {
         return {
           isValid: false,
           error: 'Your account has been suspended. Please contact support for assistance.',

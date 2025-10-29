@@ -20,10 +20,10 @@ async function handleSessionInit(request: NextRequest, context: SecurityContext)
       return NextResponse.json({ error: 'Session ID is required' }, { status: 400 });
     }
 
-    // Verify user owns this session
+    // Verify user owns this session and get lock status
     const { data: session, error: sessionError } = await supabase
       .from('therapy_sessions')
-      .select('session_id, title, created_at, user_id')
+      .select('session_id, title, created_at, user_id, is_locked, locked_at, locked_by, lock_reason, can_unlock')
       .eq('session_id', sessionId)
       .single();
 
@@ -67,23 +67,16 @@ async function handleSessionInit(request: NextRequest, context: SecurityContext)
       if (isFirstSession) {
         initialMessage = {
           id: 'ai-intro',
-          content: `Welcome to ZenithWell! I'm your AI wellness coach, and I'm here to support your mental wellness journey. 
+          content: `Welcome! I'm your wellness coach. Let's start with your goals:
 
-Before we begin, I'd like to understand what brings you here today:
-
-1. What are your main goals for our sessions together?
-2. What areas of your life would you most like to focus on?
-3. Are there any specific challenges you're currently facing?
-4. How would you know our sessions are helping?
-
-Feel free to share as much or as little as you're comfortable with. Everything we discuss is private and will be remembered for future sessions.`,
+What are your main wellness goals? What would you like to work on?`,
           sender: 'ai',
           timestamp: new Date().toISOString(),
         };
       } else {
         initialMessage = {
           id: 'ai-greeting',
-          content: `Welcome back! I'm glad to see you again. How are you feeling today? Is there anything specific you'd like to work on or discuss?`,
+          content: `Welcome back! How are you feeling today? What would you like to work on?`,
           sender: 'ai',
           timestamp: new Date().toISOString(),
         };
@@ -145,6 +138,11 @@ Feel free to share as much or as little as you're comfortable with. Everything w
         id: session.session_id,
         title: session.title,
         created_at: session.created_at,
+        is_locked: session.is_locked || false,
+        locked_at: session.locked_at,
+        locked_by: session.locked_by,
+        lock_reason: session.lock_reason,
+        can_unlock: session.can_unlock,
       },
       messages: formattedMessages,
       userSubscription: userData.subscription_tier,

@@ -25,6 +25,9 @@ export default function ChatPage() {
   const [showCompleteIntroduction, setShowCompleteIntroduction] = useState(false);
   const [messageTimeouts, setMessageTimeouts] = useState<Map<string, NodeJS.Timeout>>(new Map());
   const [pendingMessage, setPendingMessage] = useState<ChatMessage | null>(null);
+  const [isSessionLocked, setIsSessionLocked] = useState(false);
+  const [lockReason, setLockReason] = useState<string | null>(null);
+  const [lockedBy, setLockedBy] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const supabase = createClient();
 
@@ -114,6 +117,9 @@ export default function ChatPage() {
       setSessionStartTime(new Date(result.session.created_at));
       setUserSubscription(result.userSubscription);
       setMessages(result.messages);
+      setIsSessionLocked(result.session.is_locked || false);
+      setLockReason(result.session.lock_reason);
+      setLockedBy(result.session.locked_by);
       
       // Check if this is an introduction session
       if (result.session.session_type === 'introduction') {
@@ -171,12 +177,9 @@ export default function ChatPage() {
         // Add completion message to the chat
         const completionMessage: ChatMessage = {
           id: 'intro-complete',
-          content: `Thank you for completing your introduction! I've extracted and stored your goals:
+          content: `Perfect! I've saved your goals. This introduction session is now complete.
 
-**Your Wellness Goals:**
-${result.goals.map((goal: any, index: number) => `${index + 1}. ${goal.goal_text}`).join('\n')}
-
-These goals will guide our future sessions together. You can now create regular wellness sessions whenever you're ready!`,
+Ready to start your first regular wellness session?`,
           sender: 'ai',
           timestamp: new Date(),
         };
@@ -199,7 +202,7 @@ These goals will guide our future sessions together. You can now create regular 
 
   const sendMessage = async (messageToResend?: ChatMessage) => {
     const messageContent = messageToResend ? messageToResend.content : inputMessage;
-    if (!messageContent.trim() || loading || sessionEnded || initializing) return;
+    if (!messageContent.trim() || loading || sessionEnded || initializing || isSessionLocked) return;
 
     // Prevent sending new messages if there's already a pending message waiting for AI response
     if (!messageToResend && pendingMessage) {
@@ -470,11 +473,11 @@ These goals will guide our future sessions together. You can now create regular 
           </Button>
           <div className="flex items-center space-x-3">
             <div className="w-10 h-10 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-full flex items-center justify-center">
-              <span className="text-white font-semibold text-sm">AI</span>
+              <span className="text-white font-semibold text-sm">👤</span>
             </div>
             <div>
               <h1 className="text-lg font-semibold text-slate-900 dark:text-white">{sessionTitle}</h1>
-              <p className="text-sm text-slate-500 dark:text-slate-400">AI Wellness Coach</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400">Your Coach</p>
             </div>
           </div>
         </div>
@@ -549,7 +552,7 @@ These goals will guide our future sessions together. You can now create regular 
                     ? 'bg-gradient-to-br from-blue-500 to-indigo-600 text-white' 
                     : 'bg-gradient-to-br from-emerald-500 to-teal-600 text-white'
                 }`}>
-                  {message.sender === 'user' ? 'U' : 'AI'}
+                  {message.sender === 'user' ? 'U' : '👤'}
                 </div>
                 
                 {/* Message */}
@@ -579,7 +582,7 @@ These goals will guide our future sessions together. You can now create regular 
                     {message.sender === 'ai' && (
                       <div className="flex items-center space-x-1">
                         <div className="w-1 h-1 bg-emerald-400 rounded-full"></div>
-                        <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">AI Coach</span>
+                        <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">Your Coach</span>
                       </div>
                     )}
                     {message.sender === 'user' && message.needsResend && (
@@ -631,7 +634,7 @@ These goals will guide our future sessions together. You can now create regular 
           <div className="flex justify-start">
             <div className="flex items-start space-x-3 max-w-2xl">
               <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-sm font-medium text-white">
-                AI
+                👤
               </div>
               <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl rounded-bl-md px-4 py-3 shadow-sm">
                 <div className="flex items-center space-x-2">
@@ -640,7 +643,7 @@ These goals will guide our future sessions together. You can now create regular 
                     <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
                     <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
                   </div>
-                  <span className="text-sm text-slate-600 dark:text-slate-400">AI is thinking...</span>
+                  <span className="text-sm text-slate-600 dark:text-slate-400">Your coach is typing...</span>
                 </div>
               </div>
             </div>
@@ -651,8 +654,33 @@ These goals will guide our future sessions together. You can now create regular 
         </div>
       </div>
 
+      {/* Session Lock Banner */}
+      {isSessionLocked && (
+        <div className="bg-gradient-to-r from-red-50 to-pink-50 dark:from-red-900/20 dark:to-pink-900/20 border-t border-red-200 dark:border-red-700 p-4">
+          <div className="max-w-4xl mx-auto text-center">
+            <div className="flex items-center justify-center space-x-2 mb-2">
+              <Lock className="h-5 w-5 text-red-600 dark:text-red-400" />
+              <h3 className="text-lg font-semibold text-red-800 dark:text-red-200">
+                Session Secured
+              </h3>
+            </div>
+            <p className="text-sm text-red-700 dark:text-red-300 mb-2">
+              This session has been secured for your safety. Your coach has ended this session.
+            </p>
+            {lockReason && (
+              <p className="text-xs text-red-600 dark:text-red-400 mb-3">
+                Reason: {lockReason}
+              </p>
+            )}
+            <p className="text-xs text-red-600 dark:text-red-400">
+              Contact support if you need assistance: support@zenithwell.com
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Complete Introduction Button */}
-      {showCompleteIntroduction && (
+      {showCompleteIntroduction && !isSessionLocked && (
         <div className="bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/20 border-t border-emerald-200 dark:border-emerald-700 p-4">
           <div className="max-w-4xl mx-auto text-center">
             <p className="text-sm text-emerald-700 dark:text-emerald-300 mb-3">
@@ -677,36 +705,38 @@ These goals will guide our future sessions together. You can now create regular 
       )}
 
       {/* Input */}
-      <div className="bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm border-t border-slate-200 dark:border-slate-700 p-4 shadow-lg">
-        <div className="max-w-4xl mx-auto">
-          <div className="flex space-x-3">
-            <div className="flex-1 relative">
-              <textarea
-                value={inputMessage}
-                onChange={(e) => setInputMessage(e.target.value)}
-                onKeyPress={handleKeyPress}
-                placeholder="Share your thoughts, feelings, or wellness goals..."
-                className="w-full min-h-[48px] max-h-32 px-4 py-3 pr-12 border border-slate-300 dark:border-slate-600 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent resize-none dark:bg-slate-900 dark:text-white placeholder-slate-500 dark:placeholder-slate-400 transition-all duration-200"
-                disabled={loading || sessionEnded || initializing || !!pendingMessage}
-                rows={1}
-              />
-              <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                <Button
-                  onClick={() => sendMessage()}
-                  disabled={!inputMessage.trim() || loading || sessionEnded || initializing || !!pendingMessage}
-                  size="sm"
-                  className="w-8 h-8 p-0 rounded-full bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
-                >
-                  <Send className="h-4 w-4" />
-                </Button>
+      {!isSessionLocked && (
+        <div className="bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm border-t border-slate-200 dark:border-slate-700 p-4 shadow-lg">
+          <div className="max-w-4xl mx-auto">
+            <div className="flex space-x-3">
+              <div className="flex-1 relative">
+                <textarea
+                  value={inputMessage}
+                  onChange={(e) => setInputMessage(e.target.value)}
+                  onKeyPress={handleKeyPress}
+                  placeholder="Share your thoughts, feelings, or wellness goals..."
+                  className="w-full min-h-[48px] max-h-32 px-4 py-3 pr-12 border border-slate-300 dark:border-slate-600 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent resize-none dark:bg-slate-900 dark:text-white placeholder-slate-500 dark:placeholder-slate-400 transition-all duration-200"
+                  disabled={loading || sessionEnded || initializing || !!pendingMessage}
+                  rows={1}
+                />
+                <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                  <Button
+                    onClick={() => sendMessage()}
+                    disabled={!inputMessage.trim() || loading || sessionEnded || initializing || !!pendingMessage}
+                    size="sm"
+                    className="w-8 h-8 p-0 rounded-full bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+                  >
+                    <Send className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
             </div>
-          </div>
-          <div className="mt-2 text-xs text-slate-500 dark:text-slate-400 text-center">
-            Press Enter to send, Shift+Enter for new line
+            <div className="mt-2 text-xs text-slate-500 dark:text-slate-400 text-center">
+              Press Enter to send, Shift+Enter for new line
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
