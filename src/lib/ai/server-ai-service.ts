@@ -450,7 +450,7 @@ export class ServerAIService {
       }
 
       const config = { provider, api_key: apiKey, model };
-      const aiProvider = this.createAIProvider(config);
+      const aiProvider = await this.createAIProvider(config);
 
       const testMessages: AIMessage[] = [
         { role: 'user', content: 'Hi' }
