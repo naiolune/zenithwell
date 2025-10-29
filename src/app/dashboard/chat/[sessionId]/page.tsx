@@ -24,6 +24,7 @@ export default function ChatPage() {
   const [isIntroductionSession, setIsIntroductionSession] = useState(false);
   const [showCompleteIntroduction, setShowCompleteIntroduction] = useState(false);
   const [messageTimeouts, setMessageTimeouts] = useState<Map<string, NodeJS.Timeout>>(new Map());
+  const [pendingMessage, setPendingMessage] = useState<ChatMessage | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const supabase = createClient();
 
@@ -200,6 +201,12 @@ These goals will guide our future sessions together. You can now create regular 
     const messageContent = messageToResend ? messageToResend.content : inputMessage;
     if (!messageContent.trim() || loading || sessionEnded || initializing) return;
 
+    // Prevent sending new messages if there's already a pending message waiting for AI response
+    if (!messageToResend && pendingMessage) {
+      alert('Please wait for the AI to respond to your previous message before sending a new one.');
+      return;
+    }
+
     const userMessage: ChatMessage = {
       id: messageToResend ? messageToResend.id : Date.now().toString(),
       content: messageContent,
@@ -225,6 +232,8 @@ These goals will guide our future sessions together. You can now create regular 
       setInputMessage('');
     }
     
+    // Set pending message to prevent new messages
+    setPendingMessage(userMessage);
     setLoading(true);
     
     // Set up timeout for user message
@@ -285,6 +294,7 @@ These goals will guide our future sessions together. You can now create regular 
 
       // Clear timeout and mark the user message as successfully sent
       clearMessageTimeout(userMessage.id);
+      setPendingMessage(null); // Clear pending message
       if (messageToResend) {
         setMessages(prev => prev.map(msg => 
           msg.id === messageToResend.id 
@@ -306,6 +316,7 @@ These goals will guide our future sessions together. You can now create regular 
       
       // Clear timeout since we're handling the error
       clearMessageTimeout(userMessage.id);
+      setPendingMessage(null); // Clear pending message on error
       
       // Mark user message as needing resend
       if (messageToResend) {
@@ -338,6 +349,50 @@ These goals will guide our future sessions together. You can now create regular 
 
   const handleResendMessage = (message: ChatMessage) => {
     sendMessage(message);
+  };
+
+  const handleDeleteMessage = async (message: ChatMessage) => {
+    if (!message.id) return;
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        alert('You must be logged in to delete messages');
+        return;
+      }
+
+      const response = await fetch('/api/messages/delete', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          messageId: message.id,
+          sessionId: sessionId,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to delete message');
+      }
+
+      // Remove message from local state
+      setMessages(prev => prev.filter(msg => msg.id !== message.id));
+    } catch (error) {
+      console.error('Error deleting message:', error);
+      alert('Failed to delete message. Please try again.');
+    }
+  };
+
+  // Check if a user message can be deleted (no AI response after it)
+  const canDeleteMessage = (message: ChatMessage, messageIndex: number) => {
+    if (message.sender !== 'user') return false;
+    
+    // Check if there's an AI message after this user message
+    const nextMessage = messages[messageIndex + 1];
+    return !nextMessage || nextMessage.sender !== 'ai';
   };
 
   // Set up timeout to detect if AI doesn't respond to a user message
@@ -541,6 +596,19 @@ These goals will guide our future sessions together. You can now create regular 
                         )}
                       </Button>
                     )}
+                    {message.sender === 'user' && canDeleteMessage(message, index) && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleDeleteMessage(message)}
+                        className="text-xs px-2 py-1 h-6 bg-gray-50 hover:bg-gray-100 border-gray-200 text-gray-600 dark:bg-gray-800/20 dark:hover:bg-gray-800/30 dark:border-gray-700 dark:text-gray-400"
+                      >
+                        <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                        Delete
+                      </Button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -607,13 +675,13 @@ These goals will guide our future sessions together. You can now create regular 
                 onKeyPress={handleKeyPress}
                 placeholder="Share your thoughts, feelings, or wellness goals..."
                 className="w-full min-h-[48px] max-h-32 px-4 py-3 pr-12 border border-slate-300 dark:border-slate-600 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent resize-none dark:bg-slate-900 dark:text-white placeholder-slate-500 dark:placeholder-slate-400 transition-all duration-200"
-                disabled={loading || sessionEnded || initializing}
+                disabled={loading || sessionEnded || initializing || !!pendingMessage}
                 rows={1}
               />
               <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
                 <Button
                   onClick={() => sendMessage()}
-                  disabled={!inputMessage.trim() || loading || sessionEnded || initializing}
+                  disabled={!inputMessage.trim() || loading || sessionEnded || initializing || !!pendingMessage}
                   size="sm"
                   className="w-8 h-8 p-0 rounded-full bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
                 >

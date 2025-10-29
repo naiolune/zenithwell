@@ -293,24 +293,48 @@ async function handleChatRequest(request: NextRequest, context: SecurityContext)
         content: msg.content
       }));
 
-    // Validate message sequence - ensure no consecutive messages of same type
+    // Validate and fix message sequence to ensure proper alternation
     const validatedMessages = [];
     let lastRole = null;
+    let userMessageCount = 0;
+    let assistantMessageCount = 0;
     
+    // Process messages in chronological order (oldest first)
     for (const msg of aiMessages) {
-      if (lastRole !== msg.role) {
-        validatedMessages.push(msg);
-        lastRole = msg.role;
-      } else {
-        // Skip consecutive messages of same type
+      // Skip if this would create consecutive messages of same type
+      if (lastRole === msg.role) {
         console.warn(`Skipping consecutive ${msg.role} message:`, msg.content.substring(0, 50));
+        continue;
       }
+      
+      // For user messages, ensure we don't have too many without assistant responses
+      if (msg.role === 'user') {
+        userMessageCount++;
+        // If we have more user messages than assistant messages, skip this one
+        if (userMessageCount > assistantMessageCount + 1) {
+          console.warn(`Skipping user message ${userMessageCount} - waiting for assistant response`);
+          continue;
+        }
+      } else if (msg.role === 'assistant') {
+        assistantMessageCount++;
+      }
+      
+      validatedMessages.push(msg);
+      lastRole = msg.role;
     }
 
-    // Ensure we have at least one user message
+    // Ensure we have at least one user message and proper alternation
     if (!validatedMessages.some(msg => msg.role === 'user')) {
       return NextResponse.json({ error: 'No user message found' }, { status: 400 });
     }
+
+    // Ensure the last message is from user (so AI can respond)
+    const lastMessage = validatedMessages[validatedMessages.length - 1];
+    if (lastMessage.role !== 'user') {
+      return NextResponse.json({ error: 'Last message must be from user' }, { status: 400 });
+    }
+
+    console.log(`Validated ${validatedMessages.length} messages: ${validatedMessages.map(m => m.role).join(' -> ')}`);
 
     // Generate AI response with enhanced context
     const aiResponse = await ServerAIService.generateResponse(validatedMessages, sessionId, context.user.id);

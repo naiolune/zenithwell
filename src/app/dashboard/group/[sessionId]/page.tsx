@@ -48,6 +48,7 @@ export default function GroupSessionPage() {
   const [waitingForParticipants, setWaitingForParticipants] = useState(false);
   const [sessionWaiting, setSessionWaiting] = useState(false);
   const [messageTimeouts, setMessageTimeouts] = useState<Map<string, NodeJS.Timeout>>(new Map());
+  const [pendingMessage, setPendingMessage] = useState<ChatMessage | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const supabase = createClient();
@@ -285,9 +286,59 @@ export default function GroupSessionPage() {
     sendMessage(message);
   };
 
+  const handleDeleteMessage = async (message: ChatMessage) => {
+    if (!message.id) return;
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        alert('You must be logged in to delete messages');
+        return;
+      }
+
+      const response = await fetch('/api/messages/delete', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          messageId: message.id,
+          sessionId: sessionId,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to delete message');
+      }
+
+      // Remove message from local state
+      setMessages(prev => prev.filter(msg => msg.id !== message.id));
+    } catch (error) {
+      console.error('Error deleting message:', error);
+      alert('Failed to delete message. Please try again.');
+    }
+  };
+
+  // Check if a user message can be deleted (no AI response after it)
+  const canDeleteMessage = (message: ChatMessage, messageIndex: number) => {
+    if (message.sender !== 'user') return false;
+    
+    // Check if there's an AI message after this user message
+    const nextMessage = messages[messageIndex + 1];
+    return !nextMessage || nextMessage.sender !== 'ai';
+  };
+
   const sendMessage = async (messageToResend?: ChatMessage) => {
     const messageContent = messageToResend ? messageToResend.content : inputMessage;
     if (!messageContent.trim() || loading) return;
+
+    // Prevent sending new messages if there's already a pending message waiting for AI response
+    if (!messageToResend && pendingMessage) {
+      alert('Please wait for the AI to respond to your previous message before sending a new one.');
+      return;
+    }
 
     const userMessage: ChatMessage = {
       id: messageToResend ? messageToResend.id : Date.now().toString(),
@@ -314,6 +365,8 @@ export default function GroupSessionPage() {
       setInputMessage('');
     }
     
+    // Set pending message to prevent new messages
+    setPendingMessage(userMessage);
     setLoading(true);
     
     // Set up timeout for user message
@@ -364,6 +417,7 @@ export default function GroupSessionPage() {
 
       // Clear timeout and mark the user message as successfully sent
       clearMessageTimeout(userMessage.id);
+      setPendingMessage(null); // Clear pending message
       if (messageToResend) {
         setMessages(prev => prev.map(msg => 
           msg.id === messageToResend.id 
@@ -377,6 +431,7 @@ export default function GroupSessionPage() {
       
       // Clear timeout since we're handling the error
       clearMessageTimeout(userMessage.id);
+      setPendingMessage(null); // Clear pending message on error
       
       // Mark user message as needing resend
       if (messageToResend) {
@@ -507,7 +562,7 @@ export default function GroupSessionPage() {
               <p>Start a group conversation with your AI wellness coach</p>
             </div>
           ) : (
-            messages.map((message) => (
+            messages.map((message, index) => (
               <div
                 key={message.id}
                 className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}
@@ -523,7 +578,7 @@ export default function GroupSessionPage() {
                     </CardContent>
                   </Card>
                   {message.sender === 'user' && message.needsResend && (
-                    <div className="flex justify-end">
+                    <div className="flex justify-end space-x-2">
                       <Button
                         size="sm"
                         variant="outline"
@@ -547,6 +602,34 @@ export default function GroupSessionPage() {
                             )}
                           </>
                         )}
+                      </Button>
+                      {canDeleteMessage(message, index) && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleDeleteMessage(message)}
+                          className="text-xs px-2 py-1 h-6 bg-gray-50 hover:bg-gray-100 border-gray-200 text-gray-600 dark:bg-gray-800/20 dark:hover:bg-gray-800/30 dark:border-gray-700 dark:text-gray-400"
+                        >
+                          <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                          Delete
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                  {message.sender === 'user' && !message.needsResend && canDeleteMessage(message, index) && (
+                    <div className="flex justify-end">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleDeleteMessage(message)}
+                        className="text-xs px-2 py-1 h-6 bg-gray-50 hover:bg-gray-100 border-gray-200 text-gray-600 dark:bg-gray-800/20 dark:hover:bg-gray-800/30 dark:border-gray-700 dark:text-gray-400"
+                      >
+                        <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                        Delete
                       </Button>
                     </div>
                   )}
@@ -580,11 +663,11 @@ export default function GroupSessionPage() {
                   : "Type your message..."
               }
               className="flex-1 min-h-[40px] max-h-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 resize-none dark:bg-gray-900 dark:text-white"
-              disabled={loading || !canSendMessage()}
+              disabled={loading || !canSendMessage() || !!pendingMessage}
             />
             <Button
               onClick={() => sendMessage()}
-              disabled={!inputMessage.trim() || loading || !canSendMessage()}
+              disabled={!inputMessage.trim() || loading || !canSendMessage() || !!pendingMessage}
               className="px-4"
             >
               <Send className="h-4 w-4" />
