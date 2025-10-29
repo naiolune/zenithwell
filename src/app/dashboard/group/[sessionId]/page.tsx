@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, Users, Clock, AlertCircle, CheckCircle } from 'lucide-react';
+import { ArrowLeft, Users, Clock, AlertCircle, CheckCircle, Circle, CircleDot, Copy, Share2 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { getUserSubscription, canAccessProFeature } from '@/lib/subscription';
 import { ChatMessage } from '@/types';
@@ -58,6 +58,7 @@ export default function GroupSessionPage() {
   const [pendingMessage, setPendingMessage] = useState<ChatMessage | null>(null);
   const [showBreakPrompt, setShowBreakPrompt] = useState(false);
   const [showEmergencyResources, setShowEmergencyResources] = useState(false);
+  const [copySuccess, setCopySuccess] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const supabase = createClient();
@@ -516,6 +517,26 @@ export default function GroupSessionPage() {
     setShowEmergencyResources(false);
   };
 
+  const copyInviteLink = async () => {
+    const inviteUrl = `${window.location.origin}/join/${sessionId}`;
+    try {
+      await navigator.clipboard.writeText(inviteUrl);
+      setCopySuccess(true);
+      setTimeout(() => setCopySuccess(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy invite link:', err);
+      // Fallback for older browsers
+      const textArea = document.createElement('textarea');
+      textArea.value = inviteUrl;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      setCopySuccess(true);
+      setTimeout(() => setCopySuccess(false), 2000);
+    }
+  };
+
   const handleBreakAccept = () => {
     setShowBreakPrompt(false);
     alert('Inhale for 4 seconds, hold for 4, exhale for 6. Repeat for two minutes.');
@@ -558,6 +579,24 @@ export default function GroupSessionPage() {
             </div>
           </div>
           <div className="flex items-center gap-3">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={copyInviteLink}
+              className="flex items-center gap-2"
+            >
+              {copySuccess ? (
+                <>
+                  <CheckCircle className="h-4 w-4 text-green-500" />
+                  Copied!
+                </>
+              ) : (
+                <>
+                  <Copy className="h-4 w-4" />
+                  Copy Invite
+                </>
+              )}
+            </Button>
             {isOwner && (
               <ShareLinkDialog
                 sessionId={sessionId}
@@ -692,6 +731,32 @@ export default function GroupSessionPage() {
 
           <div className="hidden xl:block overflow-y-auto rounded-3xl border border-white/60 bg-white/80 p-4 dark:border-slate-800/70 dark:bg-slate-900/70">
             <div className="space-y-4">
+              <Card className="border-none bg-white/70 dark:bg-slate-900/60">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm">Invite Others</CardTitle>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <Button
+                    onClick={copyInviteLink}
+                    variant="outline"
+                    size="sm"
+                    className="w-full flex items-center gap-2"
+                  >
+                    {copySuccess ? (
+                      <>
+                        <CheckCircle className="h-4 w-4 text-green-500" />
+                        Copied!
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="h-4 w-4" />
+                        Copy Invite Link
+                      </>
+                    )}
+                  </Button>
+                </CardContent>
+              </Card>
+
               <ParticipantList
                 participants={participants.map(p => ({
                   user_id: p.user_id,
