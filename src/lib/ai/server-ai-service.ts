@@ -9,6 +9,8 @@ import {
   extractGoalsFromResponse,
   UserMemory 
 } from './memory-service';
+import { getAITools } from './tools';
+import { executeToolCall, ToolCall, ToolResult } from './tool-executor';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -248,29 +250,65 @@ export class ServerAIService {
         
         console.log(`Using token limit: ${tokenLimit} for model: ${config.model}`);
         
+        // Get tools for function calling
+        const tools = getAITools();
+        
         const response = await provider.chat.completions.create({
           model: config.model,
           messages: allMessages as any,
-          stream: true,
+          tools: tools,
+          tool_choice: "auto",
           ...tokenParam,
         });
 
-        let content = '';
-        for await (const chunk of response) {
-          if (chunk.choices[0]?.delta?.content) {
-            content += chunk.choices[0].delta.content;
-          }
+        const message = response.choices[0]?.message;
+        if (!message) {
+          return { success: false, error: 'No response from AI' };
         }
 
         console.log('=== AI RESPONSE DEBUG ===');
         console.log('Provider: OpenAI');
-        console.log('Response received:', content.substring(0, 200) + (content.length > 200 ? '...' : ''));
+        console.log('Message content:', message.content?.substring(0, 200) + (message.content?.length > 200 ? '...' : ''));
+        console.log('Tool calls:', message.tool_calls?.length || 0);
         console.log('=== END AI RESPONSE DEBUG ===');
 
+        let finalContent = message.content || '';
+
+        // Handle tool calls if present
+        if (message.tool_calls && message.tool_calls.length > 0) {
+          console.log('Processing tool calls:', message.tool_calls.length);
+          
+          // Execute all tool calls
+          const toolResults: ToolResult[] = [];
+          for (const toolCall of message.tool_calls) {
+            if (toolCall.type === 'function') {
+              const result = await executeToolCall(toolCall as ToolCall, sessionId || '', userId || '');
+              toolResults.push(result);
+            }
+          }
+
+          // Add tool results to messages and get final response
+          const messagesWithTools = [
+            ...allMessages,
+            message,
+            ...toolResults
+          ];
+
+          const finalResponse = await provider.chat.completions.create({
+            model: config.model,
+            messages: messagesWithTools as any,
+            ...tokenParam,
+          });
+
+          finalContent = finalResponse.choices[0]?.message?.content || finalContent;
+          
+          console.log('Final response after tools:', finalContent.substring(0, 200) + (finalContent.length > 200 ? '...' : ''));
+        }
+
         // Extract goals from first session if needed
-        if (isFirstSession && userId && content) {
+        if (isFirstSession && userId && finalContent) {
           try {
-            const goals = extractGoalsFromResponse(content);
+            const goals = extractGoalsFromResponse(finalContent);
             if (goals.length > 0) {
               await storeFirstSessionGoals(userId, goals);
             }
@@ -279,7 +317,7 @@ export class ServerAIService {
           }
         }
 
-        return { success: true, content };
+        return { success: true, content: finalContent };
       } else if (config.provider === 'anthropic') {
         const response = await provider.messages.create({
           model: config.model,
