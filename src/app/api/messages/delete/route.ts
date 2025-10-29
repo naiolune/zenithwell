@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { withAPISecurity, SecurityConfigs } from '@/middleware/api-security';
+import { withAPISecurity, SecurityConfigs, SecurityContext } from '@/middleware/api-security';
 import { InputSanitizer } from '@/lib/security/input-sanitizer';
 import { SecureErrorHandler } from '@/lib/security/error-handler';
 
@@ -18,9 +18,13 @@ async function handleDeleteMessage(request: NextRequest, context: SecurityContex
       return NextResponse.json({ error: 'Message ID and Session ID are required' }, { status: 400 });
     }
 
-    // Sanitize inputs
-    const sanitizedMessageId = InputSanitizer.sanitizeString(messageId);
-    const sanitizedSessionId = InputSanitizer.sanitizeString(sessionId);
+    // Validate and sanitize inputs
+    if (!InputSanitizer.validateUUID(messageId) || !InputSanitizer.validateUUID(sessionId)) {
+      return NextResponse.json({ error: 'Invalid ID format' }, { status: 400 });
+    }
+    
+    const sanitizedMessageId = InputSanitizer.sanitizeText(messageId);
+    const sanitizedSessionId = InputSanitizer.sanitizeText(sessionId);
 
     // Verify user owns the message
     const { data: message, error: messageError } = await supabase
@@ -48,6 +52,11 @@ async function handleDeleteMessage(request: NextRequest, context: SecurityContex
 
     if (sessionError || !session) {
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+    }
+
+    // Ensure user is authenticated
+    if (!context.user) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
     }
 
     // For individual sessions, check if user owns the session
