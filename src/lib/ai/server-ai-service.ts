@@ -433,42 +433,126 @@ export class ServerAIService {
 
   static async testConnection(provider: string, apiKey: string, model: string): Promise<AIResponse> {
     try {
+      // Validate inputs
+      if (!provider || !apiKey || !model) {
+        return {
+          success: false,
+          error: 'Provider, API key, and model are required'
+        };
+      }
+
+      // Validate API key format (basic check)
+      if (provider === 'openai' && !apiKey.startsWith('sk-')) {
+        return {
+          success: false,
+          error: 'Invalid OpenAI API key format. OpenAI keys should start with "sk-"'
+        };
+      }
+
       const config = { provider, api_key: apiKey, model };
-      const aiProvider = await this.createAIProvider(config);
+      const aiProvider = this.createAIProvider(config);
 
       const testMessages: AIMessage[] = [
-        { role: 'user', content: 'test' }
+        { role: 'user', content: 'Hi' }
       ];
 
       if (provider === 'openai') {
-        const tokenParam = this.getOpenAITokenParam(model, 10); // Use 10 tokens for test
+        const tokenParam = this.getOpenAITokenParam(model, 50); // Use 50 tokens for test (minimum for most models)
+        console.log(`Testing OpenAI connection with model: ${model}`);
+        
         const response = await aiProvider.chat.completions.create({
           model: model,
           messages: testMessages as any,
           ...tokenParam,
         });
-        return { success: !!response.choices[0]?.message?.content };
+        
+        if (!response.choices[0]?.message?.content) {
+          return {
+            success: false,
+            error: 'Received empty response from OpenAI API'
+          };
+        }
+        
+        return { success: true };
       } else if (provider === 'anthropic') {
         const response = await aiProvider.messages.create({
           model: model,
-          max_tokens: 1,
+          max_tokens: 10,
           messages: testMessages as any,
         });
-        return { success: !!response.content[0]?.text };
+        
+        if (!response.content[0]?.text) {
+          return {
+            success: false,
+            error: 'Received empty response from Anthropic API'
+          };
+        }
+        
+        return { success: true };
       } else if (provider === 'perplexity') {
         const completion = await aiProvider.chat.completions.create({
           model: model,
           messages: testMessages as any,
         });
-        return { success: !!completion.choices[0]?.message?.content };
+        
+        if (!completion.choices[0]?.message?.content) {
+          return {
+            success: false,
+            error: 'Received empty response from Perplexity API'
+          };
+        }
+        
+        return { success: true };
       } else {
         throw new Error(`Unsupported provider: ${provider}`);
       }
     } catch (error: any) {
       console.error('Test connection error:', error);
+      console.error('Error details:', {
+        status: error?.status || error?.statusCode,
+        message: error?.message,
+        code: error?.code,
+        type: error?.type,
+        error: error?.error
+      });
+      
+      // Extract detailed error information
+      let errorMessage = 'Connection test failed';
+      
+      // OpenAI SDK v6 error structure
+      const status = error?.status || error?.statusCode || error?.response?.status;
+      const errorData = error?.error || error?.response?.data?.error;
+      
+      if (status === 401 || error?.code === 'invalid_api_key') {
+        errorMessage = 'Invalid API key. Please check your API key and try again.';
+      } else if (status === 404 || error?.code === 'model_not_found') {
+        errorMessage = `Model "${model}" not found. Please verify the model name is correct.`;
+      } else if (status === 429 || error?.code === 'rate_limit_exceeded') {
+        errorMessage = 'Rate limit exceeded. Please try again later.';
+      } else if (status === 500 || status === 502 || status === 503) {
+        errorMessage = 'OpenAI API is temporarily unavailable. Please try again later.';
+      } else if (errorData?.message) {
+        errorMessage = errorData.message;
+      } else if (error?.message) {
+        errorMessage = error.message;
+        
+        // Provide more helpful messages for common errors
+        if (error.message.includes('API key') || error.message.includes('api_key')) {
+          errorMessage = 'Invalid API key. Please verify your API key is correct.';
+        } else if (error.message.includes('ENOTFOUND') || error.message.includes('ECONNREFUSED')) {
+          errorMessage = 'Network error: Unable to connect to OpenAI API. Please check your internet connection.';
+        } else if (error.message.includes('timeout')) {
+          errorMessage = 'Connection timeout. Please try again.';
+        } else if (error.message.includes('model')) {
+          errorMessage = `Model error: ${error.message}`;
+        }
+      } else if (status) {
+        errorMessage = `API error (${status}): ${error?.statusText || 'Unknown error'}`;
+      }
+      
       return { 
         success: false, 
-        error: error.message || 'Connection test failed' 
+        error: errorMessage
       };
     }
   }
