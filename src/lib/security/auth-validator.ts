@@ -51,11 +51,27 @@ export class AuthValidator {
       }
 
       // Get user profile from our users table
-      const { data: userProfile, error: profileError } = await supabase
-        .from('users')
-        .select('subscription_tier, is_admin, is_suspended, suspension_reason')
-        .eq('user_id', user.id)
-        .single();
+      // First try with suspension fields, fallback to basic fields if they don't exist
+      let userProfile, profileError;
+      
+      try {
+        const result = await supabase
+          .from('users')
+          .select('subscription_tier, is_admin, is_suspended, suspension_reason')
+          .eq('user_id', user.id)
+          .single();
+        userProfile = result.data;
+        profileError = result.error;
+      } catch (error) {
+        // Fallback to basic fields if suspension fields don't exist
+        const result = await supabase
+          .from('users')
+          .select('subscription_tier, is_admin')
+          .eq('user_id', user.id)
+          .single();
+        userProfile = result.data;
+        profileError = result.error;
+      }
 
       if (profileError || !userProfile) {
         return {
@@ -65,7 +81,7 @@ export class AuthValidator {
         };
       }
 
-      // Check if user is suspended (only if suspension fields exist)
+      // Check if user is suspended (only if suspension fields exist and are true)
       if (userProfile.is_suspended === true) {
         return {
           isValid: false,
