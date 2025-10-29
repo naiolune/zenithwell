@@ -47,29 +47,7 @@ async function handleCreateSession(request: NextRequest, context: SecurityContex
     const isFirstTimeUser = await detectFirstSession(context.user.id);
     
     if (isFirstTimeUser) {
-      // Check if they already have an introduction session
-      const { data: existingIntro, error: introError } = await supabase
-        .from('therapy_sessions')
-        .select('session_id')
-        .eq('user_id', context.user.id)
-        .eq('session_type', 'introduction')
-        .single();
-
-      if (introError && introError.code !== 'PGRST116') { // PGRST116 = no rows found
-        console.error('Error checking for existing introduction session:', introError);
-        return NextResponse.json({ error: 'Failed to check for existing introduction session' }, { status: 500 });
-      }
-
-      if (existingIntro) {
-        return NextResponse.json({ 
-          error: 'Please complete your introduction session first',
-          requiresIntroduction: true,
-          introductionSessionId: existingIntro.session_id,
-          message: 'You need to complete your introduction session before creating regular sessions.'
-        }, { status: 400 });
-      }
-
-      // Create introduction session for first-time user
+      // For first-time users, always create an introduction session regardless of request
       const { data: introSession, error: introCreateError } = await supabase
         .from('therapy_sessions')
         .insert({
@@ -131,7 +109,7 @@ Feel free to share as much or as little as you're comfortable with. Everything w
           }
         },
         isIntroductionSession: true,
-        message: 'Introduction session created. Please complete this before creating regular sessions.'
+        message: 'Welcome! Your first session is an introduction to help us understand your goals.'
       });
     }
 

@@ -142,7 +142,7 @@ export default function SessionsPage() {
       if (result.success) {
         if (result.isIntroductionSession) {
           // Show special message for introduction session
-          alert('Welcome! Please complete your introduction session first. This will help us understand your goals and create a personalized experience for you.');
+          alert('Welcome! Your first session is an introduction to help us understand your goals and create a personalized experience for you.');
         }
         window.location.href = `/dashboard/chat/${result.session.session_id}`;
       }
@@ -280,7 +280,14 @@ export default function SessionsPage() {
         </div>
         <Button onClick={createNewSession} className="flex items-center space-x-2">
           <Plus className="h-4 w-4" />
-          <span>{userSubscription === 'free' && sessionCount >= 3 ? 'Session Limit Reached' : 'New Session'}</span>
+          <span>
+            {userSubscription === 'free' && sessionCount >= 3 
+              ? 'Session Limit Reached' 
+              : sessions.length === 0 
+                ? 'Start Your Journey' 
+                : 'New Session'
+            }
+          </span>
         </Button>
       </div>
 
