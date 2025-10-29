@@ -1,0 +1,57 @@
+module.exports = {
+  apps: [
+    {
+      name: 'zenithwell',
+      script: 'npm',
+      args: 'start',
+      cwd: '/home/kitsune/zenithwell',
+      instances: 'max', // Use all available CPU cores
+      exec_mode: 'cluster',
+      env: {
+        NODE_ENV: 'production',
+        PORT: 3000
+      },
+      env_production: {
+        NODE_ENV: 'production',
+        PORT: 3000
+      },
+      // Logging
+      log_file: '/home/kitsune/zenithwell/logs/combined.log',
+      out_file: '/home/kitsune/zenithwell/logs/out.log',
+      error_file: '/home/kitsune/zenithwell/logs/error.log',
+      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+      
+      // Process management
+      max_memory_restart: '1G',
+      min_uptime: '10s',
+      max_restarts: 10,
+      
+      // Health monitoring
+      watch: false, // Set to true for development
+      ignore_watch: ['node_modules', 'logs', '.next'],
+      
+      // Advanced features
+      kill_timeout: 5000,
+      wait_ready: true,
+      listen_timeout: 10000,
+      
+      // Auto restart on file changes (development only)
+      watch_options: {
+        followSymlinks: false
+      }
+    }
+  ],
+
+  deploy: {
+    production: {
+      user: 'kitsune',
+      host: 'localhost',
+      ref: 'origin/master',
+      repo: 'git@github.com:your-username/zenithwell.git', // Update with your actual repo
+      path: '/home/kitsune/zenithwell',
+      'pre-deploy-local': '',
+      'post-deploy': 'npm install && npm run build && pm2 reload ecosystem.config.js --env production',
+      'pre-setup': ''
+    }
+  }
+};
