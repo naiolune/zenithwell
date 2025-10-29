@@ -729,7 +729,7 @@ Ready to start your first regular wellness session?`,
                         message={message}
                         onResend={handleResendMessage}
                         onDelete={handleDeleteMessage}
-                        canDelete={canDeleteMessage(message, index)}
+                        canDelete={!loading && canDeleteMessage(message, index)}
                       />
                     </div>
                   ))}
