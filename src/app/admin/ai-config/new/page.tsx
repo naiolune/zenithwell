@@ -17,17 +17,15 @@ export default function NewAIConfigPage() {
   const supabase = createClient();
 
   const availableProviders = [
-    { id: 'openai', name: 'OpenAI', models: ['gpt-3.5-turbo', 'gpt-4', 'gpt-4-turbo'] },
-    { id: 'anthropic', name: 'Anthropic', models: ['claude-3-haiku-20240307', 'claude-3-sonnet-20240229', 'claude-3-opus-20240229'] },
-    { id: 'perplexity', name: 'Perplexity', models: ['sonar-pro', 'sonar-medium', 'sonar-small'] }
+    { id: 'openai', name: 'OpenAI' },
+    { id: 'anthropic', name: 'Anthropic' },
+    { id: 'perplexity', name: 'Perplexity' }
   ];
 
   const handleProviderChange = (newProvider: string) => {
     setProvider(newProvider);
-    const providerInfo = availableProviders.find(p => p.id === newProvider);
-    if (providerInfo && providerInfo.models.length > 0) {
-      setModel(providerInfo.models[0]);
-    }
+    // Clear model when provider changes to let user enter their own
+    setModel('');
   };
 
   const testConnection = async () => {
@@ -126,8 +124,6 @@ export default function NewAIConfigPage() {
     }
   };
 
-  const selectedProvider = availableProviders.find(p => p.id === provider);
-
   return (
     <div className="max-w-2xl mx-auto space-y-6">
       <div>
@@ -178,25 +174,19 @@ export default function NewAIConfigPage() {
             />
           </div>
 
-          {selectedProvider && (
-            <div>
-              <label htmlFor="model" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Model
-              </label>
-              <select
-                id="model"
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 dark:bg-gray-900 dark:text-white"
-              >
-                {selectedProvider.models.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
+          <div>
+            <label htmlFor="model" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Model
+            </label>
+            <input
+              id="model"
+              type="text"
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 dark:bg-gray-900 dark:text-white"
+              placeholder="Enter model name (e.g., gpt-4, claude-3-sonnet, sonar-pro)"
+            />
+          </div>
 
           <div className="flex space-x-4">
             <Button
