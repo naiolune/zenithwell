@@ -30,6 +30,15 @@ async function handleCreateSession(request: NextRequest, context: SecurityContex
 
     // Validate session type based on isGroup parameter
     const actualSessionType = isGroup ? 'group' : 'individual';
+    
+    // Ensure session_type is one of the allowed values
+    const allowedSessionTypes = ['individual', 'group', 'introduction'];
+    if (!allowedSessionTypes.includes(actualSessionType)) {
+      return NextResponse.json({ 
+        error: 'Invalid session type',
+        details: `Session type must be one of: ${allowedSessionTypes.join(', ')}`
+      }, { status: 400 });
+    }
 
     // Get user subscription for validation
     const { data: userData, error: userError } = await supabase
@@ -165,14 +174,19 @@ Feel free to share as much or as little as you're comfortable with. Everything w
       
       // Check if it's a constraint violation
       if (createError.message?.includes('check constraint')) {
+        console.error('Constraint violation detected.');
+        
         return NextResponse.json({ 
           error: 'Failed to create session',
           details: createError.message,
-          hint: 'The session_type constraint may need to be updated. Please contact support.',
+          hint: 'A database constraint violation occurred. The session_type constraint should allow: individual, group, introduction',
           attemptedValues: {
             session_type: actualSessionType,
-            is_group: isGroup
-          }
+            is_group: isGroup,
+            allowed_types: ['individual', 'group', 'introduction']
+          },
+          code: createError.code,
+          fullError: createError
         }, { status: 500 });
       }
       
