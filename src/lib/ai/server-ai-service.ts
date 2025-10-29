@@ -63,8 +63,10 @@ export class ServerAIService {
     sessionId?: string,
     userId?: string
   ): Promise<AIResponse> {
+    let config: any;
+    let allMessages: AIMessage[] = [];
     try {
-      const config = await this.getActiveAIConfig();
+      config = await this.getActiveAIConfig();
       const provider = await this.createAIProvider(config);
 
       // Get session details and user context
@@ -183,7 +185,7 @@ export class ServerAIService {
         content: getSystemPrompt(systemPromptConfig)
       };
 
-      const allMessages = [systemMessage, ...messages];
+      allMessages = [systemMessage, ...messages];
 
       // Log full message sequence being sent to AI
       console.log('=== AI REQUEST DEBUG ===');
