@@ -3,11 +3,34 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { Send, ArrowLeft, Loader2, Users, Copy, Share2 } from 'lucide-react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Send, ArrowLeft, Loader2, Users, Clock, AlertCircle, CheckCircle } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { getUserSubscription, canAccessProFeature } from '@/lib/subscription';
 import { ChatMessage } from '@/types';
+import { ParticipantList } from '@/components/ParticipantStatus';
+import { ShareLinkDialog } from '@/components/ShareLinkDialog';
+import { GROUP_SESSION_CONFIG } from '@/lib/group-session-config';
+
+interface SessionData {
+  session_id: string;
+  title: string;
+  group_category: string;
+  session_status: string;
+  user_id: string;
+}
+
+interface Participant {
+  user_id: string;
+  email: string;
+  full_name: string;
+  is_ready: boolean;
+  is_online: boolean;
+  is_away: boolean;
+  last_heartbeat: string;
+  presence_status: string;
+}
 
 export default function GroupSessionPage() {
   const params = useParams();
@@ -16,19 +39,30 @@ export default function GroupSessionPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputMessage, setInputMessage] = useState('');
   const [loading, setLoading] = useState(false);
-  const [sessionTitle, setSessionTitle] = useState('Group Session');
-  const [participants, setParticipants] = useState<any[]>([]);
+  const [sessionData, setSessionData] = useState<SessionData | null>(null);
+  const [participants, setParticipants] = useState<Participant[]>([]);
+  const [allOnline, setAllOnline] = useState(false);
   const [isPro, setIsPro] = useState(false);
-  const [inviteLink, setInviteLink] = useState('');
+  const [isOwner, setIsOwner] = useState(false);
+  const [isReady, setIsReady] = useState(false);
+  const [waitingForParticipants, setWaitingForParticipants] = useState(false);
+  const [sessionWaiting, setSessionWaiting] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const supabase = createClient();
 
   useEffect(() => {
     loadUserData();
     fetchSessionData();
     fetchMessages();
-    fetchParticipants();
-    generateInviteLink();
+    startHeartbeat();
+    setupRealtimeSubscription();
+    
+    return () => {
+      if (heartbeatIntervalRef.current) {
+        clearInterval(heartbeatIntervalRef.current);
+      }
+    };
   }, [sessionId]);
 
   useEffect(() => {
@@ -53,35 +87,44 @@ export default function GroupSessionPage() {
   const fetchSessionData = async () => {
     try {
       const { data, error } = await supabase
-        .from('sessions')
-        .select('title')
-        .eq('id', sessionId)
+        .from('therapy_sessions')
+        .select('*')
+        .eq('session_id', sessionId)
         .single();
 
-      if (data) {
-        setSessionTitle(data.title);
+      if (error) {
+        console.error('Error fetching session data:', error);
+        return;
+      }
+
+      setSessionData(data);
+      
+      // Check if current user is the owner
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user && data.user_id === user.id) {
+        setIsOwner(true);
       }
     } catch (error) {
-      console.error('Error fetching session data:', error);
+      console.error('Error:', error);
     }
   };
 
   const fetchMessages = async () => {
     try {
       const { data, error } = await supabase
-        .from('messages')
+        .from('session_messages')
         .select('*')
         .eq('session_id', sessionId)
-        .order('created_at', { ascending: true });
+        .order('timestamp', { ascending: true });
 
       if (error) {
         console.error('Error fetching messages:', error);
       } else {
         const formattedMessages: ChatMessage[] = (data || []).map(msg => ({
-          id: msg.id,
+          id: msg.message_id,
           content: msg.content,
-          sender: msg.sender as 'user' | 'ai',
-          timestamp: new Date(msg.created_at),
+          sender: msg.sender_type as 'user' | 'ai',
+          timestamp: new Date(msg.timestamp),
         }));
         setMessages(formattedMessages);
       }
@@ -92,35 +135,115 @@ export default function GroupSessionPage() {
 
   const fetchParticipants = async () => {
     try {
-      const { data, error } = await supabase
+      const response = await fetch(`/api/group/presence?sessionId=${sessionId}`);
+      if (response.ok) {
+        const data = await response.json();
+        setParticipants(data.participants || []);
+        setAllOnline(data.all_online || false);
+      }
+    } catch (error) {
+      console.error('Error fetching participants:', error);
+    }
+  };
+
+  const startHeartbeat = () => {
+    // Send heartbeat immediately
+    sendHeartbeat();
+    
+    // Set up interval
+    heartbeatIntervalRef.current = setInterval(() => {
+      sendHeartbeat();
+    }, GROUP_SESSION_CONFIG.HEARTBEAT_INTERVAL_MS);
+  };
+
+  const sendHeartbeat = async () => {
+    try {
+      await fetch('/api/group/presence', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ sessionId }),
+      });
+      
+      // Refresh participant data
+      fetchParticipants();
+    } catch (error) {
+      console.error('Error sending heartbeat:', error);
+    }
+  };
+
+  const setupRealtimeSubscription = () => {
+    // Subscribe to participant changes
+    const channel = supabase
+      .channel(`session-${sessionId}`)
+      .on('postgres_changes', 
+        { 
+          event: '*', 
+          schema: 'public', 
+          table: 'session_participants',
+          filter: `session_id=eq.${sessionId}`
+        }, 
+        () => {
+          fetchParticipants();
+        }
+      )
+      .on('postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'participant_presence',
+          filter: `session_id=eq.${sessionId}`
+        },
+        () => {
+          fetchParticipants();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  };
+
+  const markAsReady = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { error } = await supabase
         .from('session_participants')
-        .select(`
-          *,
-          users:user_id (email)
-        `)
-        .eq('session_id', sessionId);
+        .update({ is_ready: !isReady })
+        .eq('session_id', sessionId)
+        .eq('user_id', user.id);
 
       if (error) {
-        console.error('Error fetching participants:', error);
+        console.error('Error updating ready status:', error);
       } else {
-        setParticipants(data || []);
+        setIsReady(!isReady);
+        fetchParticipants();
       }
     } catch (error) {
       console.error('Error:', error);
     }
   };
 
-  const generateInviteLink = () => {
-    const baseUrl = window.location.origin;
-    setInviteLink(`${baseUrl}/join/${sessionId}`);
-  };
+  const startSession = async () => {
+    if (!isOwner) return;
 
-  const copyInviteLink = async () => {
     try {
-      await navigator.clipboard.writeText(inviteLink);
-      alert('Invite link copied to clipboard!');
+      const { error } = await supabase
+        .from('therapy_sessions')
+        .update({ session_status: 'active' })
+        .eq('session_id', sessionId);
+
+      if (error) {
+        console.error('Error starting session:', error);
+      } else {
+        setSessionData(prev => prev ? { ...prev, session_status: 'active' } : null);
+      }
     } catch (error) {
-      console.error('Failed to copy invite link:', error);
+      console.error('Error:', error);
     }
   };
 
@@ -140,18 +263,10 @@ export default function GroupSessionPage() {
     setLoading(true);
 
     try {
-      // Get session token for authentication
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        throw new Error('Not authenticated');
-      }
-
-      // Call server-side AI API
       const response = await fetch('/api/ai/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`,
         },
         body: JSON.stringify({
           sessionId,
@@ -161,6 +276,17 @@ export default function GroupSessionPage() {
 
       if (!response.ok) {
         const errorData = await response.json();
+        
+        if (errorData.waitingForParticipants) {
+          setWaitingForParticipants(true);
+          return;
+        }
+        
+        if (errorData.sessionWaiting) {
+          setSessionWaiting(true);
+          return;
+        }
+        
         throw new Error(errorData.error || 'Failed to get AI response');
       }
 
@@ -201,6 +327,16 @@ export default function GroupSessionPage() {
     }
   };
 
+  const canSendMessage = () => {
+    return allOnline && 
+           sessionData?.session_status === 'active' && 
+           !waitingForParticipants && 
+           !sessionWaiting;
+  };
+
+  const readyParticipants = participants.filter(p => p.is_ready).length;
+  const allParticipantsReady = participants.length > 0 && readyParticipants === participants.length;
+
   return (
     <div className="h-screen flex">
       {/* Main Chat Area */}
@@ -215,19 +351,67 @@ export default function GroupSessionPage() {
             >
               <ArrowLeft className="h-4 w-4" />
             </Button>
-            <h1 className="text-lg font-semibold dark:text-white">{sessionTitle}</h1>
+            <div>
+              <h1 className="text-lg font-semibold dark:text-white">{sessionData?.title}</h1>
+              <div className="flex items-center space-x-2">
+                <Badge variant="outline" className="capitalize">
+                  {sessionData?.group_category}
+                </Badge>
+                <Badge variant={sessionData?.session_status === 'active' ? 'default' : 'secondary'}>
+                  {sessionData?.session_status}
+                </Badge>
+              </div>
+            </div>
           </div>
           <div className="flex items-center space-x-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={copyInviteLink}
-            >
-              <Copy className="h-4 w-4 mr-2" />
-              Copy Invite
-            </Button>
+            {isOwner && (
+              <ShareLinkDialog
+                sessionId={sessionId}
+                currentParticipants={participants.length}
+                maxParticipants={GROUP_SESSION_CONFIG.MAX_PARTICIPANTS_PER_SESSION}
+                isOwner={isOwner}
+                onRefresh={fetchParticipants}
+              />
+            )}
           </div>
         </div>
+
+        {/* Waiting Room Banner */}
+        {sessionData?.session_status === 'waiting' && (
+          <div className="bg-yellow-50 dark:bg-yellow-900/20 border-b border-yellow-200 dark:border-yellow-800 p-4">
+            <div className="flex items-center space-x-2">
+              <Clock className="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
+              <div>
+                <p className="font-medium text-yellow-800 dark:text-yellow-200">
+                  Waiting Room
+                </p>
+                <p className="text-sm text-yellow-700 dark:text-yellow-300">
+                  {allParticipantsReady 
+                    ? 'All participants are ready. Session can start!'
+                    : `${readyParticipants}/${participants.length} participants ready`
+                  }
+                </p>
+              </div>
+              {isOwner && allParticipantsReady && (
+                <Button onClick={startSession} size="sm">
+                  Start Session
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Presence Warning */}
+        {waitingForParticipants && (
+          <div className="bg-red-50 dark:bg-red-900/20 border-b border-red-200 dark:border-red-800 p-4">
+            <div className="flex items-center space-x-2">
+              <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-400" />
+              <p className="text-red-800 dark:text-red-200">
+                All participants must be online to continue the conversation.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -273,13 +457,17 @@ export default function GroupSessionPage() {
               value={inputMessage}
               onChange={(e) => setInputMessage(e.target.value)}
               onKeyPress={handleKeyPress}
-              placeholder="Type your message..."
+              placeholder={
+                !canSendMessage() 
+                  ? "Waiting for all participants to be online..." 
+                  : "Type your message..."
+              }
               className="flex-1 min-h-[40px] max-h-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 resize-none dark:bg-gray-900 dark:text-white"
-              disabled={loading}
+              disabled={loading || !canSendMessage()}
             />
             <Button
               onClick={sendMessage}
-              disabled={!inputMessage.trim() || loading}
+              disabled={!inputMessage.trim() || loading || !canSendMessage()}
               className="px-4"
             >
               <Send className="h-4 w-4" />
@@ -289,57 +477,62 @@ export default function GroupSessionPage() {
       </div>
 
       {/* Participants Sidebar */}
-      <div className="w-64 bg-gray-50 dark:bg-gray-800 border-l dark:border-gray-700 p-4">
+      <div className="w-80 bg-gray-50 dark:bg-gray-800 border-l dark:border-gray-700 p-4">
         <div className="space-y-4">
-          <div>
-            <h3 className="font-semibold text-gray-900 dark:text-white mb-3 flex items-center">
-              <Users className="h-4 w-4 mr-2" />
-              Participants ({participants.length})
-            </h3>
-            <div className="space-y-2">
-              {participants.map((participant) => (
-                <div key={participant.user_id} className="flex items-center space-x-2">
-                  <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                    <span className="text-blue-600 text-sm font-medium">
-                      {participant.users?.email?.charAt(0).toUpperCase()}
-                    </span>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                      {participant.users?.email}
-                    </p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">
-                      {participant.role}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+          <ParticipantList
+            participants={participants}
+            allOnline={allOnline}
+            totalParticipants={participants.length}
+            onlineParticipants={participants.filter(p => p.is_online).length}
+          />
 
-          <div className="border-t dark:border-gray-700 pt-4">
-            <h4 className="font-medium text-gray-900 dark:text-white mb-2">Invite Others</h4>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
-              Share this link to invite family and friends to join the session.
-            </p>
-            <div className="flex space-x-2">
-              <input
-                value={inviteLink}
-                readOnly
-                placeholder="Invite link will appear here"
-                aria-label="Invite link"
-                className="flex-1 text-xs px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-900 dark:text-white"
-              />
+          {/* Ready Status */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Your Status</CardTitle>
+            </CardHeader>
+            <CardContent className="pt-0">
               <Button
+                onClick={markAsReady}
+                variant={isReady ? "default" : "outline"}
                 size="sm"
-                variant="outline"
-                onClick={copyInviteLink}
-                aria-label="Copy invite link"
+                className="w-full"
               >
-                <Copy className="h-3 w-3" />
+                {isReady ? (
+                  <>
+                    <CheckCircle className="h-4 w-4 mr-2" />
+                    Ready
+                  </>
+                ) : (
+                  <>
+                    <Clock className="h-4 w-4 mr-2" />
+                    Mark as Ready
+                  </>
+                )}
               </Button>
-            </div>
-          </div>
+            </CardContent>
+          </Card>
+
+          {/* Session Info */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Session Info</CardTitle>
+            </CardHeader>
+            <CardContent className="pt-0 space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-gray-600">Type:</span>
+                <span className="capitalize">{sessionData?.group_category}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">Status:</span>
+                <span className="capitalize">{sessionData?.session_status}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">Participants:</span>
+                <span>{participants.length}/{GROUP_SESSION_CONFIG.MAX_PARTICIPANTS_PER_SESSION}</span>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       </div>
     </div>

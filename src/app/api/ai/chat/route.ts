@@ -164,6 +164,41 @@ async function handleChatRequest(request: NextRequest, context: SecurityContext)
       }
     }
 
+    // For group sessions, check if all participants are online
+    const { data: sessionDetails } = await supabase
+      .from('therapy_sessions')
+      .select('session_type, group_category, session_status')
+      .eq('session_id', sessionId)
+      .single();
+
+    if (sessionDetails?.session_type === 'group') {
+      // Check if all participants are online using the database function
+      const { data: allOnline, error: presenceError } = await supabase
+        .rpc('check_all_participants_online', { session_uuid: sessionId });
+
+      if (presenceError) {
+        console.error('Error checking participant presence:', presenceError);
+        return NextResponse.json({ error: 'Failed to check participant presence' }, { status: 500 });
+      }
+
+      if (!allOnline) {
+        return NextResponse.json({ 
+          error: 'All participants must be online to continue the session',
+          waitingForParticipants: true,
+          message: 'Please wait for all participants to join before continuing the conversation.'
+        }, { status: 423 }); // 423 Locked
+      }
+
+      // Check if session is in waiting status
+      if (sessionDetails.session_status === 'waiting') {
+        return NextResponse.json({ 
+          error: 'Session is still in waiting room',
+          sessionWaiting: true,
+          message: 'The session has not started yet. Please wait for all participants to be ready.'
+        }, { status: 423 }); // 423 Locked
+      }
+    }
+
     // Get user subscription and session details for validation
     const { data: userData, error: userError } = await supabase
       .from('users')

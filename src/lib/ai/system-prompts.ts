@@ -13,11 +13,30 @@ export interface UserMemory {
   created_at: string;
 }
 
+export interface ParticipantIntroduction {
+  user_id: string;
+  user_name: string;
+  user_email: string;
+  group_category: string;
+  relationship_role?: string;
+  why_wellness?: string;
+  goals?: string;
+  challenges?: string;
+  family_role?: string;
+  family_goals?: string;
+  what_to_achieve?: string;
+  participant_role?: string;
+  wellness_reason?: string;
+  personal_goals?: string;
+  expectations?: string;
+}
+
 export interface SystemPromptConfig {
   sessionType: SessionType;
   isFirstSession: boolean;
   userMemory: UserMemory[];
   userName?: string;
+  participantIntroductions?: ParticipantIntroduction[];
 }
 
 // Base ZenithWell prompt that applies to all sessions
@@ -110,6 +129,66 @@ USING MEMORY:
 
 If no memory exists, treat as first session and collect foundational information.`;
 
+// Group introduction context template
+const GROUP_INTRODUCTION_TEMPLATE = `
+GROUP SESSION CONTEXT:
+This is a group wellness session with the following participants and their introductions:
+
+{introduction_context}
+
+GROUP FACILITATION GUIDELINES:
+- Address the group as a whole while acknowledging individual perspectives
+- Draw connections between participants' experiences and goals
+- Encourage respectful dialogue and active listening
+- Ensure all participants feel heard and validated
+- Use the introduction context to personalize your responses
+- Reference shared goals and challenges when appropriate
+- Maintain group cohesion while respecting individual boundaries`;
+
+/**
+ * Format participant introductions into context for AI
+ */
+export function formatGroupIntroductionContext(introductions: ParticipantIntroduction[]): string {
+  if (!introductions || introductions.length === 0) {
+    return 'No participant introductions available';
+  }
+
+  const formattedIntroductions = introductions.map(intro => {
+    let context = `\n**${intro.user_name}** (${intro.user_email}):\n`;
+    
+    if (intro.group_category === 'relationship') {
+      context += `- Role in relationship: ${intro.relationship_role || 'Not specified'}\n`;
+      context += `- Why seeking wellness: ${intro.why_wellness || 'Not specified'}\n`;
+      context += `- Goals: ${intro.goals || 'Not specified'}\n`;
+      if (intro.challenges) {
+        context += `- Challenges: ${intro.challenges}\n`;
+      }
+    } else if (intro.group_category === 'family') {
+      context += `- Family role: ${intro.family_role || 'Not specified'}\n`;
+      context += `- Why seeking wellness: ${intro.why_wellness || 'Not specified'}\n`;
+      context += `- Family goals: ${intro.family_goals || 'Not specified'}\n`;
+      context += `- What to achieve: ${intro.what_to_achieve || 'Not specified'}\n`;
+    } else if (intro.group_category === 'general') {
+      context += `- Role in session: ${intro.participant_role || 'Not specified'}\n`;
+      context += `- Wellness reason: ${intro.wellness_reason || 'Not specified'}\n`;
+      context += `- Personal goals: ${intro.personal_goals || 'Not specified'}\n`;
+      context += `- Expectations: ${intro.expectations || 'Not specified'}\n`;
+    }
+    
+    return context;
+  }).join('\n');
+
+  return `Group Category: ${introductions[0]?.group_category || 'Unknown'}\n${formattedIntroductions}`;
+}
+
+/**
+ * Get group introduction context for system prompt
+ */
+export function getGroupIntroductionContext(introductions: ParticipantIntroduction[]): string {
+  const context = formatGroupIntroductionContext(introductions);
+  return GROUP_INTRODUCTION_TEMPLATE.replace('{introduction_context}', context);
+}
+
 /**
  * Format user memory into context for AI
  */
@@ -146,12 +225,17 @@ export function getFirstSessionPrompt(userName: string = 'there'): string {
  * Build complete system prompt based on session configuration
  */
 export function getSystemPrompt(config: SystemPromptConfig): string {
-  const { sessionType, isFirstSession, userMemory, userName } = config;
+  const { sessionType, isFirstSession, userMemory, userName, participantIntroductions } = config;
   
   let prompt = BASE_ZENITHWELL_PROMPT;
   
   // Add session type specific guidance
   prompt += '\n\n' + SESSION_PROMPTS[sessionType];
+  
+  // Add group introduction context for group sessions
+  if (participantIntroductions && participantIntroductions.length > 0) {
+    prompt += '\n\n' + getGroupIntroductionContext(participantIntroductions);
+  }
   
   // Add first session protocol if needed
   if (isFirstSession) {

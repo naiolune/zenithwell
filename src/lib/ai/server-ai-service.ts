@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { getSystemPrompt, SystemPromptConfig } from './system-prompts';
+import { getSystemPrompt, SystemPromptConfig, ParticipantIntroduction } from './system-prompts';
 import { 
   getUserMemory, 
   formatMemoryContext, 
@@ -71,13 +71,14 @@ export class ServerAIService {
       let isFirstSession = false;
       let userMemory: UserMemory[] = [];
       let userName = 'there';
+      let participantIntroductions: ParticipantIntroduction[] = [];
 
       if (sessionId && userId) {
         try {
-          // Get session type
+          // Get session details
           const { data: session } = await supabase
             .from('therapy_sessions')
-            .select('session_type')
+            .select('session_type, group_category')
             .eq('session_id', sessionId)
             .single();
           
@@ -101,6 +102,53 @@ export class ServerAIService {
 
           // Get user memory
           userMemory = await getUserMemory(userId);
+
+          // Get participant introductions for group sessions
+          if (sessionType === 'group' || session?.group_category) {
+            const { data: introductions } = await supabase
+              .from('participant_introductions')
+              .select(`
+                user_id,
+                group_category,
+                relationship_role,
+                why_wellness,
+                goals,
+                challenges,
+                family_role,
+                family_goals,
+                what_to_achieve,
+                participant_role,
+                wellness_reason,
+                personal_goals,
+                expectations,
+                users!inner(
+                  id,
+                  email,
+                  full_name
+                )
+              `)
+              .eq('session_id', sessionId);
+
+            if (introductions) {
+              participantIntroductions = introductions.map(intro => ({
+                user_id: intro.user_id,
+                user_name: intro.users.full_name || intro.users.email,
+                user_email: intro.users.email,
+                group_category: intro.group_category,
+                relationship_role: intro.relationship_role,
+                why_wellness: intro.why_wellness,
+                goals: intro.goals,
+                challenges: intro.challenges,
+                family_role: intro.family_role,
+                family_goals: intro.family_goals,
+                what_to_achieve: intro.what_to_achieve,
+                participant_role: intro.participant_role,
+                wellness_reason: intro.wellness_reason,
+                personal_goals: intro.personal_goals,
+                expectations: intro.expectations
+              }));
+            }
+          }
         } catch (error) {
           console.error('Error fetching session context:', error);
           // Continue with defaults if context fetch fails
@@ -112,7 +160,8 @@ export class ServerAIService {
         sessionType,
         isFirstSession,
         userMemory,
-        userName
+        userName,
+        participantIntroductions
       };
 
       const systemMessage = {

@@ -11,13 +11,17 @@ import { Plus, Users, Crown, Clock, Heart, Home, Users2 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { getUserSubscription, canAccessProFeature } from '@/lib/subscription';
 import { WellnessSession } from '@/types';
+import { IntroductionForm, IntroductionFormData } from '@/components/IntroductionForm';
+import { GROUP_SESSION_CONFIG, GroupCategory } from '@/lib/group-session-config';
 
 export default function GroupSessionsPage() {
   const [sessions, setSessions] = useState<WellnessSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [isPro, setIsPro] = useState(false);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
-  const [selectedSessionType, setSelectedSessionType] = useState<'relationship' | 'family' | 'general'>('general');
+  const [selectedSessionType, setSelectedSessionType] = useState<GroupCategory>(GROUP_SESSION_CONFIG.GROUP_CATEGORIES.GENERAL);
+  const [showIntroductionForm, setShowIntroductionForm] = useState(false);
+  const [isCreatingSession, setIsCreatingSession] = useState(false);
   const supabase = createClient();
 
   useEffect(() => {
@@ -59,46 +63,81 @@ export default function GroupSessionsPage() {
       return;
     }
 
+    setShowIntroductionForm(true);
+  };
+
+  const handleIntroductionSubmit = async (introductionData: IntroductionFormData) => {
+    setIsCreatingSession(true);
+    
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
       const sessionTypeLabels = {
-        relationship: 'Relationship Session',
-        family: 'Family Session', 
-        general: 'General Group Session'
+        [GROUP_SESSION_CONFIG.GROUP_CATEGORIES.RELATIONSHIP]: 'Relationship Session',
+        [GROUP_SESSION_CONFIG.GROUP_CATEGORIES.FAMILY]: 'Family Session', 
+        [GROUP_SESSION_CONFIG.GROUP_CATEGORIES.GENERAL]: 'General Group Session'
       };
 
-      const { data, error } = await supabase
+      // Create the session
+      const { data: session, error: sessionError } = await supabase
         .from('therapy_sessions')
         .insert({
           user_id: user.id,
           title: sessionTypeLabels[selectedSessionType],
           is_group: true,
-          session_type: selectedSessionType,
+          session_type: 'group',
+          group_category: selectedSessionType,
+          session_status: 'waiting'
         })
         .select()
         .single();
 
-      if (error) {
-        console.error('Error creating group session:', error);
+      if (sessionError) {
+        console.error('Error creating group session:', sessionError);
         alert('Failed to create group session. Please try again.');
-      } else {
-        // Add the creator as the owner
-        await supabase
-          .from('session_participants')
-          .insert({
-            session_id: data.session_id,
-            user_id: user.id,
-            role: 'owner',
-          });
-
-        setShowCreateDialog(false);
-        window.location.href = `/dashboard/group/${data.session_id}`;
+        return;
       }
+
+      // Add the creator as the owner
+      const { error: participantError } = await supabase
+        .from('session_participants')
+        .insert({
+          session_id: session.session_id,
+          user_id: user.id,
+          role: 'owner',
+          is_ready: true
+        });
+
+      if (participantError) {
+        console.error('Error adding participant:', participantError);
+        alert('Failed to add participant. Please try again.');
+        return;
+      }
+
+      // Submit introduction
+      const { error: introError } = await supabase
+        .from('participant_introductions')
+        .insert({
+          session_id: session.session_id,
+          user_id: user.id,
+          group_category: selectedSessionType,
+          ...introductionData
+        });
+
+      if (introError) {
+        console.error('Error saving introduction:', introError);
+        // Don't fail the whole process for introduction error
+      }
+
+      setShowCreateDialog(false);
+      setShowIntroductionForm(false);
+      window.location.href = `/dashboard/group/${session.session_id}`;
     } catch (error) {
       console.error('Error:', error);
       alert('Failed to create group session. Please try again.');
+    } finally {
+      setIsCreatingSession(false);
     }
   };
 
@@ -151,10 +190,10 @@ export default function GroupSessionsPage() {
                 <Label className="text-base font-medium">Session Type</Label>
                 <RadioGroup 
                   value={selectedSessionType} 
-                  onValueChange={(value: 'relationship' | 'family' | 'general') => setSelectedSessionType(value)}
+                  onValueChange={(value: GroupCategory) => setSelectedSessionType(value)}
                 >
                   <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="relationship" id="relationship" />
+                    <RadioGroupItem value={GROUP_SESSION_CONFIG.GROUP_CATEGORIES.RELATIONSHIP} id="relationship" />
                     <Label htmlFor="relationship" className="flex items-center space-x-2 cursor-pointer">
                       <Heart className="h-4 w-4 text-pink-500" />
                       <div>
@@ -164,7 +203,7 @@ export default function GroupSessionsPage() {
                     </Label>
                   </div>
                   <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="family" id="family" />
+                    <RadioGroupItem value={GROUP_SESSION_CONFIG.GROUP_CATEGORIES.FAMILY} id="family" />
                     <Label htmlFor="family" className="flex items-center space-x-2 cursor-pointer">
                       <Home className="h-4 w-4 text-blue-500" />
                       <div>
@@ -174,7 +213,7 @@ export default function GroupSessionsPage() {
                     </Label>
                   </div>
                   <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="general" id="general" />
+                    <RadioGroupItem value={GROUP_SESSION_CONFIG.GROUP_CATEGORIES.GENERAL} id="general" />
                     <Label htmlFor="general" className="flex items-center space-x-2 cursor-pointer">
                       <Users2 className="h-4 w-4 text-green-500" />
                       <div>
@@ -272,6 +311,24 @@ export default function GroupSessionsPage() {
           ))}
         </div>
       )}
+
+      {/* Introduction Form Dialog */}
+      <Dialog open={showIntroductionForm} onOpenChange={setShowIntroductionForm}>
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Complete Your Introduction</DialogTitle>
+            <DialogDescription>
+              Please share some information about yourself to help create a meaningful group session.
+            </DialogDescription>
+          </DialogHeader>
+          <IntroductionForm
+            groupCategory={selectedSessionType}
+            sessionId=""
+            onSubmit={handleIntroductionSubmit}
+            isLoading={isCreatingSession}
+          />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
