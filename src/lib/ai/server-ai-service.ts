@@ -185,6 +185,32 @@ export class ServerAIService {
 
       const allMessages = [systemMessage, ...messages];
 
+      // Log full message sequence being sent to AI
+      console.log('=== AI REQUEST DEBUG ===');
+      console.log('Provider:', config.provider);
+      console.log('Model:', config.model);
+      console.log('Total messages:', allMessages.length);
+      console.log('Message sequence:');
+      allMessages.forEach((msg, index) => {
+        console.log(`  [${index}] ${msg.role.toUpperCase()}:`, msg.content);
+      });
+      console.log('=== END AI REQUEST DEBUG ===');
+
+      // Validate message alternation before sending to AI
+      for (let i = 1; i < allMessages.length; i++) {
+        if (allMessages[i].role === allMessages[i - 1].role) {
+          console.error('Consecutive messages of same role detected:', {
+            index: i,
+            role: allMessages[i].role,
+            prevRole: allMessages[i - 1].role
+          });
+          return {
+            success: false,
+            error: 'Invalid message sequence: consecutive messages of same role'
+          };
+        }
+      }
+
       if (config.provider === 'openai') {
         const response = await provider.chat.completions.create({
           model: config.model,
@@ -198,6 +224,11 @@ export class ServerAIService {
             content += chunk.choices[0].delta.content;
           }
         }
+
+        console.log('=== AI RESPONSE DEBUG ===');
+        console.log('Provider: OpenAI');
+        console.log('Response received:', content.substring(0, 200) + (content.length > 200 ? '...' : ''));
+        console.log('=== END AI RESPONSE DEBUG ===');
 
         // Extract goals from first session if needed
         if (isFirstSession && userId && content) {
@@ -220,6 +251,11 @@ export class ServerAIService {
         });
 
         const content = response.content[0]?.text || 'No response generated';
+
+        console.log('=== AI RESPONSE DEBUG ===');
+        console.log('Provider: Anthropic');
+        console.log('Response received:', content.substring(0, 200) + (content.length > 200 ? '...' : ''));
+        console.log('=== END AI RESPONSE DEBUG ===');
 
         // Extract goals from first session if needed
         if (isFirstSession && userId && content) {
@@ -244,6 +280,12 @@ export class ServerAIService {
         });
 
         const content = completion.choices[0]?.message?.content || 'No response generated';
+        
+        console.log('=== AI RESPONSE DEBUG ===');
+        console.log('Provider: Perplexity');
+        console.log('Response received:', content.substring(0, 200) + (content.length > 200 ? '...' : ''));
+        console.log('Full response object:', JSON.stringify(completion, null, 2));
+        console.log('=== END AI RESPONSE DEBUG ===');
 
         // Extract goals from first session if needed
         if (isFirstSession && userId && content) {
@@ -262,7 +304,27 @@ export class ServerAIService {
         throw new Error(`Unsupported provider: ${config.provider}`);
       }
     } catch (error: any) {
-      console.error('AI generation error:', error);
+      console.error('=== AI ERROR DEBUG ===');
+      console.error('Error message:', error.message);
+      console.error('Error code:', error.code || error.status || 'N/A');
+      console.error('Error type:', error.type || 'N/A');
+      console.error('Full error object:', error);
+      if (typeof config !== 'undefined') {
+        console.error('Provider:', config.provider);
+        console.error('Model:', config.model);
+      }
+      if (typeof allMessages !== 'undefined' && allMessages) {
+        console.error('Message count:', allMessages.length);
+        console.error('Last 3 messages:', allMessages.slice(-3).map(m => ({ 
+          role: m.role, 
+          content: m.content.substring(0, 100) + (m.content.length > 100 ? '...' : '')
+        })));
+        console.error('Full message sequence:');
+        allMessages.forEach((msg, index) => {
+          console.error(`  [${index}] ${msg.role.toUpperCase()}:`, msg.content);
+        });
+      }
+      console.error('=== END AI ERROR DEBUG ===');
       return { 
         success: false, 
         error: error.message || 'Failed to generate AI response' 
