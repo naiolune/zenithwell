@@ -99,7 +99,7 @@ export default function AIConfigPage() {
       const { error: deactivateError } = await supabase
         .from('ai_config')
         .update({ is_active: false })
-        .eq('is_active', true);
+        .neq('id', configId);
 
       if (deactivateError) {
         console.error('Error deactivating configs:', deactivateError);
