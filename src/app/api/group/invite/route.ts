@@ -150,16 +150,18 @@ async function handleValidateInvite(request: NextRequest) {
     const currentParticipants = participants?.length || 0;
     const isFull = currentParticipants >= invite.max_participants;
 
+    const therapySession = Array.isArray(invite.therapy_sessions) ? invite.therapy_sessions[0] : invite.therapy_sessions;
+    
     return NextResponse.json({
       session_id: invite.session_id,
-      title: invite.therapy_sessions.title,
-      group_category: invite.therapy_sessions.group_category,
-      session_status: invite.therapy_sessions.session_status,
+      title: therapySession?.title,
+      group_category: therapySession?.group_category,
+      session_status: therapySession?.session_status,
       expires_at: invite.expires_at,
       max_participants: invite.max_participants,
       current_participants: currentParticipants,
       is_full: isFull,
-      can_join: !isFull && invite.therapy_sessions.session_status === 'waiting'
+      can_join: !isFull && therapySession?.session_status === 'waiting'
     });
   } catch (error) {
     console.error('Validate invite error:', error);

@@ -166,12 +166,12 @@ async function handleGetIntroductions(request: NextRequest) {
 
     // Format introductions for display
     const formattedIntroductions = introductions?.map(intro => {
-      const user = intro.users;
+      const user = Array.isArray(intro.users) ? intro.users[0] : intro.users;
       const baseIntro = {
         id: intro.id,
         user_id: intro.user_id,
-        user_name: user.full_name || user.email,
-        user_email: user.email,
+        user_name: user?.full_name || user?.email,
+        user_email: user?.email,
         group_category: intro.group_category,
         created_at: intro.created_at,
         updated_at: intro.updated_at

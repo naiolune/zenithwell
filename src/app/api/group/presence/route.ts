@@ -117,10 +117,12 @@ async function handleGetPresence(request: NextRequest) {
       const isAway = diffMs > GROUP_SESSION_CONFIG.ONLINE_THRESHOLD_SECONDS * 1000 && 
                     diffMs <= GROUP_SESSION_CONFIG.AWAY_THRESHOLD_SECONDS * 1000;
 
+      const user = Array.isArray(p.users) ? p.users[0] : p.users;
+      
       return {
         user_id: p.user_id,
-        email: p.users.email,
-        full_name: p.users.full_name,
+        email: user?.email,
+        full_name: user?.full_name,
         is_ready: p.is_ready,
         is_online: isOnline,
         is_away: isAway,

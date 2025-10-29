@@ -480,7 +480,16 @@ export default function GroupSessionPage() {
       <div className="w-80 bg-gray-50 dark:bg-gray-800 border-l dark:border-gray-700 p-4">
         <div className="space-y-4">
           <ParticipantList
-            participants={participants}
+            participants={participants.map(p => ({
+              user_id: p.user_id,
+              user_name: p.full_name,
+              user_email: p.email,
+              is_ready: p.is_ready,
+              is_online: p.is_online,
+              is_away: p.is_away,
+              last_heartbeat: p.last_heartbeat,
+              presence_status: p.presence_status as any
+            }))}
             allOnline={allOnline}
             totalParticipants={participants.length}
             onlineParticipants={participants.filter(p => p.is_online).length}

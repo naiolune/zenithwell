@@ -100,17 +100,17 @@ export class ServerAIService {
           }
 
           // Check if first session (only for individual sessions)
-          if (sessionType !== 'group') {
+          if (sessionType === 'individual') {
             isFirstSession = await detectFirstSession(userId, sessionId);
           }
 
           // Get user memory (only for individual sessions)
-          if (sessionType !== 'group') {
+          if (sessionType === 'individual') {
             userMemory = await getUserMemory(userId);
           }
 
           // Get participant introductions and group memory for group sessions
-          if (sessionType === 'group' || session?.group_category) {
+          if (session?.group_category) {
             // Get participant introductions
             const { data: introductions } = await supabase
               .from('participant_introductions')
@@ -137,10 +137,12 @@ export class ServerAIService {
               .eq('session_id', sessionId);
 
             if (introductions) {
-              participantIntroductions = introductions.map(intro => ({
-                user_id: intro.user_id,
-                user_name: intro.users.full_name || intro.users.email,
-                user_email: intro.users.email,
+              participantIntroductions = introductions.map(intro => {
+                const user = Array.isArray(intro.users) ? intro.users[0] : intro.users;
+                return {
+                  user_id: intro.user_id,
+                  user_name: user?.full_name || user?.email,
+                  user_email: user?.email,
                 group_category: intro.group_category,
                 relationship_role: intro.relationship_role,
                 why_wellness: intro.why_wellness,
@@ -153,7 +155,8 @@ export class ServerAIService {
                 wellness_reason: intro.wellness_reason,
                 personal_goals: intro.personal_goals,
                 expectations: intro.expectations
-              }));
+                };
+              });
             }
 
             // Get group memory
