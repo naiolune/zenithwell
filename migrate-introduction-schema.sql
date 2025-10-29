@@ -25,17 +25,28 @@ CREATE INDEX IF NOT EXISTS idx_user_goals_status ON public.user_goals(status);
 ALTER TABLE public.user_goals ENABLE ROW LEVEL SECURITY;
 
 -- Create RLS policies for user_goals
-CREATE POLICY IF NOT EXISTS "Users can view own goals" ON public.user_goals
-  FOR SELECT USING (auth.uid() = user_id);
+DO $$ 
+BEGIN
+    -- Drop existing policies if they exist
+    DROP POLICY IF EXISTS "Users can view own goals" ON public.user_goals;
+    DROP POLICY IF EXISTS "Users can create own goals" ON public.user_goals;
+    DROP POLICY IF EXISTS "Users can update own goals" ON public.user_goals;
+    DROP POLICY IF EXISTS "Users can delete own goals" ON public.user_goals;
+    DROP POLICY IF EXISTS "Service role can manage goals" ON public.user_goals;
+    
+    -- Create new policies
+    CREATE POLICY "Users can view own goals" ON public.user_goals
+      FOR SELECT USING (auth.uid() = user_id);
 
-CREATE POLICY IF NOT EXISTS "Users can create own goals" ON public.user_goals
-  FOR INSERT WITH CHECK (auth.uid() = user_id);
+    CREATE POLICY "Users can create own goals" ON public.user_goals
+      FOR INSERT WITH CHECK (auth.uid() = user_id);
 
-CREATE POLICY IF NOT EXISTS "Users can update own goals" ON public.user_goals
-  FOR UPDATE USING (auth.uid() = user_id);
+    CREATE POLICY "Users can update own goals" ON public.user_goals
+      FOR UPDATE USING (auth.uid() = user_id);
 
-CREATE POLICY IF NOT EXISTS "Users can delete own goals" ON public.user_goals
-  FOR DELETE USING (auth.uid() = user_id);
+    CREATE POLICY "Users can delete own goals" ON public.user_goals
+      FOR DELETE USING (auth.uid() = user_id);
 
-CREATE POLICY IF NOT EXISTS "Service role can manage goals" ON public.user_goals
-  FOR ALL USING (auth.role() = 'service_role');
+    CREATE POLICY "Service role can manage goals" ON public.user_goals
+      FOR ALL USING (auth.role() = 'service_role');
+END $$;
