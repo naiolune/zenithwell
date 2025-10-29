@@ -1,12 +1,14 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Plus, MessageCircle, Clock, Users, Crown, Lock, Edit2, Trash2, MoreVertical } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Plus, MessageCircle, Clock, Users, Lock, Edit2, Trash2 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { WellnessSession } from '@/types';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 export default function SessionsPage() {
   const [sessions, setSessions] = useState<WellnessSession[]>([]);
@@ -17,7 +19,10 @@ export default function SessionsPage() {
   const [editTitle, setEditTitle] = useState('');
   const [editSummary, setEditSummary] = useState('');
   const [deletingSession, setDeletingSession] = useState<string | null>(null);
+  const [showIntroductionLockedModal, setShowIntroductionLockedModal] = useState(false);
+  const [selectedIntroductionSession, setSelectedIntroductionSession] = useState<WellnessSession | null>(null);
   const supabase = createClient();
+  const router = useRouter();
 
   useEffect(() => {
     fetchSessions();
@@ -263,6 +268,40 @@ export default function SessionsPage() {
     }
   };
 
+  const handleSessionClick = (session: WellnessSession) => {
+    if (editingSession) return;
+
+    const isIntroduction = session.session_type === 'introduction';
+    const introductionLocked = isIntroduction && session.is_locked;
+
+    if (introductionLocked) {
+      setSelectedIntroductionSession(session);
+      setShowIntroductionLockedModal(true);
+      return;
+    }
+
+    router.push(`/dashboard/chat/${session.session_id}`);
+  };
+
+  const introductionLockedLabel = (session: WellnessSession) => {
+    if (session.session_type !== 'introduction') return null;
+    if (session.is_locked) {
+      return (
+        <Badge variant="outline" className="text-emerald-700 border-emerald-200 dark:text-emerald-200 dark:border-emerald-700">
+          Introduction completed
+        </Badge>
+      );
+    }
+    return null;
+  };
+
+  const handleCloseIntroductionModal = (open: boolean) => {
+    setShowIntroductionLockedModal(open);
+    if (!open) {
+      setSelectedIntroductionSession(null);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -329,6 +368,9 @@ export default function SessionsPage() {
                     {session.is_group && (
                       <Users className="h-4 w-4 text-blue-600" />
                     )}
+                  {session.is_locked && (
+                    <Lock className="h-4 w-4 text-red-500" />
+                  )}
                     {editingSession !== session.session_id && (
                       <div className="flex items-center space-x-1">
                         <Button
@@ -364,6 +406,7 @@ export default function SessionsPage() {
                       : 'Individual Session'
                   }
                 </CardDescription>
+                {introductionLockedLabel(session)}
               </CardHeader>
               <CardContent>
                 <div className="space-y-2">
@@ -407,16 +450,19 @@ export default function SessionsPage() {
                       </Button>
                     </div>
                   ) : (
-                    <Link href={`/dashboard/chat/${session.session_id}`}>
-                      <Button variant="outline" className="w-full">
-                        {session.session_type === 'introduction' 
-                          ? 'Complete Introduction' 
-                          : userSubscription === 'pro' 
-                            ? 'Continue Session' 
-                            : 'Resume (Pro Only)'
-                        }
-                      </Button>
-                    </Link>
+                    <Button
+                      variant={session.session_type === 'introduction' && session.is_locked ? 'default' : 'outline'}
+                      className="w-full"
+                      onClick={() => handleSessionClick(session)}
+                    >
+                      {session.session_type === 'introduction'
+                        ? session.is_locked
+                          ? 'Introduction Completed'
+                          : 'Complete Introduction'
+                        : userSubscription === 'pro'
+                          ? 'Continue Session'
+                          : 'Resume (Pro Only)'}
+                    </Button>
                   )}
                 </div>
               </CardContent>
@@ -424,6 +470,39 @@ export default function SessionsPage() {
           ))}
         </div>
       )}
+
+      <Dialog open={showIntroductionLockedModal} onOpenChange={handleCloseIntroductionModal}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Introduction session locked</DialogTitle>
+            <DialogDescription>
+              Your introduction session is complete. Start a fresh wellness session to continue or review your introduction history.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                if (selectedIntroductionSession) {
+                  router.push(`/dashboard/chat/${selectedIntroductionSession.session_id}`);
+                }
+                setShowIntroductionLockedModal(false);
+              }}
+            >
+              View history
+            </Button>
+            <Button
+              onClick={() => {
+                setShowIntroductionLockedModal(false);
+                createNewSession();
+              }}
+              className="bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white"
+            >
+              Start new session
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
