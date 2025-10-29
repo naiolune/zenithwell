@@ -512,16 +512,6 @@ export default function GroupSessionPage() {
            !sessionWaiting;
   };
 
-  const handleSuggestBreak = () => {
-    if (canSendMessage()) {
-      setShowBreakPrompt(true);
-    }
-  };
-
-  const handleEmergencyResources = () => {
-    setShowEmergencyResources(true);
-  };
-
   const handleCloseEmergencyResources = () => {
     setShowEmergencyResources(false);
   };
@@ -537,11 +527,7 @@ export default function GroupSessionPage() {
 
   const renderQuickActions = () => (
     <QuickActions
-      onSuggestBreak={handleSuggestBreak}
-      onOpenEmergencyResources={handleEmergencyResources}
-      onAddCoachNote={() => alert('Group session notes coming soon.')}
-      onScheduleCheckIn={() => alert('Group check-in scheduling coming soon.')}
-      onAddMemoryTag={() => alert('Group memory tagging coming soon.')}
+      onEndSession={() => router.push('/dashboard/group')}
     />
   );
 

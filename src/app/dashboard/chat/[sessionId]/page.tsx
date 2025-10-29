@@ -565,35 +565,12 @@ Ready to start your first regular wellness session?`,
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
 
-  const handleSuggestBreak = () => {
-    if (!isSessionLocked) {
-      setShowBreakPrompt(true);
-    }
-  };
-
-  const handleEmergencyResources = () => {
-    setShowInsightPanel(true);
-    setShowEmergencyResources(true);
-  };
-
   const handleCloseEmergencyResources = () => {
     setShowEmergencyResources(false);
   };
 
   const handleEndSession = () => {
     router.push('/dashboard/sessions');
-  };
-
-  const handleAddCoachNote = () => {
-    alert('Session notes will be available soon.');
-  };
-
-  const handleScheduleCheckIn = () => {
-    alert('Scheduling check-ins will be available soon.');
-  };
-
-  const handleAddMemoryTag = () => {
-    alert('Memory tagging will be available soon.');
   };
 
   const handleBreakAccept = () => {
@@ -612,12 +589,7 @@ Ready to start your first regular wellness session?`,
   const renderQuickActions = () =>
     !isSessionLocked && !sessionEnded ? (
       <QuickActions
-        onSuggestBreak={handleSuggestBreak}
-        onOpenEmergencyResources={handleEmergencyResources}
         onEndSession={handleEndSession}
-        onAddCoachNote={handleAddCoachNote}
-        onScheduleCheckIn={handleScheduleCheckIn}
-        onAddMemoryTag={handleAddMemoryTag}
       />
     ) : null;
 
