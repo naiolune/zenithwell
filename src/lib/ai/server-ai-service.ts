@@ -464,7 +464,6 @@ export class ServerAIService {
           model: model,
           messages: testMessages as any,
           ...tokenParam,
-          tool_choice: 'none', // Disable tool calls for test to ensure text response
         });
         
         // Log response structure for debugging
