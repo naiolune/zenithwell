@@ -583,7 +583,7 @@ export default function GroupSessionPage() {
               disabled={loading || !canSendMessage()}
             />
             <Button
-              onClick={sendMessage}
+              onClick={() => sendMessage()}
               disabled={!inputMessage.trim() || loading || !canSendMessage()}
               className="px-4"
             >

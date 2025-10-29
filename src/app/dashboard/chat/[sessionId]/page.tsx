@@ -246,7 +246,7 @@ These goals will guide our future sessions together. You can now create regular 
         },
         body: JSON.stringify({
           sessionId,
-          message: messageToSend,
+          message: messageContent,
         }),
       });
 
@@ -612,7 +612,7 @@ These goals will guide our future sessions together. You can now create regular 
               />
               <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
                 <Button
-                  onClick={sendMessage}
+                  onClick={() => sendMessage()}
                   disabled={!inputMessage.trim() || loading || sessionEnded || initializing}
                   size="sm"
                   className="w-8 h-8 p-0 rounded-full bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
