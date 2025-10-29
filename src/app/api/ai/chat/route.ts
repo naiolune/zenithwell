@@ -294,6 +294,21 @@ async function handleChatRequest(request: NextRequest, context: SecurityContext)
       return NextResponse.json({ error: 'Failed to save message' }, { status: 500 });
     }
 
+    console.log('=== CHAT API DEBUG ===');
+    console.log('User message saved successfully');
+
+    // Verify intro message exists
+    const { data: introMsg } = await supabase
+      .from('session_messages')
+      .select('*')
+      .eq('session_id', sessionId)
+      .eq('sender_type', 'ai')
+      .order('timestamp', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    console.log('First AI message check:', introMsg ? `Found: ${introMsg.content.substring(0, 50)}...` : 'NOT FOUND');
+
     // Get recent messages for context
     const { data: recentMessages, error: messagesError } = await supabase
       .from('session_messages')
@@ -307,6 +322,11 @@ async function handleChatRequest(request: NextRequest, context: SecurityContext)
       return NextResponse.json({ error: 'Failed to fetch messages' }, { status: 500 });
     }
 
+    console.log('Raw messages from database:', recentMessages.length);
+    recentMessages.forEach((msg, i) => {
+      console.log(`  DB[${i}] ${msg.sender_type}: ${msg.content.substring(0, 50)}...`);
+    });
+
     // Convert to AI format (reverse order for proper context)
     const aiMessages = recentMessages
       .reverse()
@@ -314,6 +334,11 @@ async function handleChatRequest(request: NextRequest, context: SecurityContext)
         role: (msg.sender_type === 'user' ? 'user' : 'assistant') as 'user' | 'assistant' | 'system',
         content: msg.content
       }));
+
+    console.log('Converted to AI format:', aiMessages.length);
+    aiMessages.forEach((msg, i) => {
+      console.log(`  AI[${i}] ${msg.role}: ${msg.content.substring(0, 50)}...`);
+    });
 
     // Validate and fix message sequence to ensure proper alternation
     const validatedMessages = [];
@@ -358,6 +383,12 @@ async function handleChatRequest(request: NextRequest, context: SecurityContext)
 
     console.log(`Validated ${validatedMessages.length} messages: ${validatedMessages.map(m => m.role).join(' -> ')}`);
 
+    console.log('After validation:', validatedMessages.length);
+    validatedMessages.forEach((msg, i) => {
+      console.log(`  VAL[${i}] ${msg.role}: ${msg.content.substring(0, 50)}...`);
+    });
+    console.log('=== END CHAT API DEBUG ===');
+
     // Generate AI response with enhanced context
     const aiResponse = await ServerAIService.generateResponse(validatedMessages, sessionId, context.user.id);
 
@@ -399,6 +430,10 @@ async function handleChatRequest(request: NextRequest, context: SecurityContext)
     });
 
   } catch (error: any) {
+    console.error('=== AI ERROR IN API ROUTE ===');
+    console.error('Full error:', error);
+    console.error('Error stack:', error.stack);
+    console.error('=== END API ROUTE ERROR ===');
     return SecureErrorHandler.handleAPIError(error, 'Chat API');
   }
 }
