@@ -12,6 +12,7 @@ import {
   deleteGoal,
   clearAllUserGoals 
 } from '@/lib/ai/memory-service';
+import { InputSanitizer } from '@/lib/security/input-sanitizer';
 
 // GET /api/goals - Retrieve user goals
 async function handleGet(request: NextRequest, context: any) {
@@ -50,14 +51,17 @@ async function handlePost(request: NextRequest, context: any) {
       );
     }
 
-    if (goalText.length > 500) {
+    // Sanitize and validate goal text
+    const sanitizedGoalText = InputSanitizer.sanitizeGoal(goalText);
+    
+    if (sanitizedGoalText.length === 0) {
       return NextResponse.json(
-        { success: false, error: 'Goal text too long (max 500 characters)' },
+        { success: false, error: 'Invalid goal text' },
         { status: 400 }
       );
     }
 
-    const goal = await addGoal(user.id, goalText.trim());
+    const goal = await addGoal(user.id, sanitizedGoalText);
 
     return NextResponse.json({ 
       success: true, 
@@ -86,8 +90,16 @@ async function handlePut(request: NextRequest, context: any) {
       );
     }
 
-    const validStatuses = ['active', 'achieved', 'paused'];
-    if (!validStatuses.includes(status)) {
+    // Validate goal ID format
+    if (!InputSanitizer.validateUUID(goalId)) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid goal ID format' },
+        { status: 400 }
+      );
+    }
+
+    // Validate status
+    if (!InputSanitizer.validateGoalStatus(status)) {
       return NextResponse.json(
         { success: false, error: 'Invalid status' },
         { status: 400 }
@@ -143,6 +155,14 @@ async function handleDelete(request: NextRequest, context: any) {
     if (!goalId) {
       return NextResponse.json(
         { success: false, error: 'Missing required field: goalId' },
+        { status: 400 }
+      );
+    }
+
+    // Validate goal ID format
+    if (!InputSanitizer.validateUUID(goalId)) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid goal ID format' },
         { status: 400 }
       );
     }

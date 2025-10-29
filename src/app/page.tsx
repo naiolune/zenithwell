@@ -107,7 +107,7 @@ export default function LandingPage() {
                 <Clock className="h-12 w-12 text-red-600 mb-4" />
                 <CardTitle>24/7 Availability</CardTitle>
                 <CardDescription>
-                  Access therapy whenever you need it, day or night
+                  Access wellness support whenever you need it, day or night
                 </CardDescription>
               </CardHeader>
             </Card>

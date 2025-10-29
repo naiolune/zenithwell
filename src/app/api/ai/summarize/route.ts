@@ -18,9 +18,9 @@ async function handleSummarizeRequest(request: NextRequest, context: SecurityCon
 
     // Verify user owns this session
     const { data: session, error: sessionError } = await supabase
-      .from('sessions')
+      .from('therapy_sessions')
       .select('*')
-      .eq('id', sessionId)
+      .eq('session_id', sessionId)
       .eq('user_id', context.user.id)
       .single();
 

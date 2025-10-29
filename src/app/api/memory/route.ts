@@ -13,6 +13,7 @@ import {
   searchMemory,
   clearAllUserMemory 
 } from '@/lib/ai/memory-service';
+import { InputSanitizer } from '@/lib/security/input-sanitizer';
 
 // GET /api/memory - Retrieve user memory
 async function handleGet(request: NextRequest, context: any) {
@@ -25,8 +26,23 @@ async function handleGet(request: NextRequest, context: any) {
     let memory;
 
     if (search) {
-      memory = await searchMemory(user.id, search);
+      // Sanitize search query
+      const sanitizedSearch = InputSanitizer.sanitizeSearchQuery(search);
+      if (sanitizedSearch.length === 0) {
+        return NextResponse.json(
+          { success: false, error: 'Invalid search query' },
+          { status: 400 }
+        );
+      }
+      memory = await searchMemory(user.id, sanitizedSearch);
     } else {
+      // Validate category if provided
+      if (category && !InputSanitizer.validateCategory(category)) {
+        return NextResponse.json(
+          { success: false, error: 'Invalid category' },
+          { status: 400 }
+        );
+      }
       memory = await getUserMemory(
         user.id, 
         category as any || undefined
@@ -60,15 +76,26 @@ async function handlePost(request: NextRequest, context: any) {
       );
     }
 
-    const validCategories = ['goals', 'preferences', 'background', 'progress', 'custom'];
-    if (!validCategories.includes(category)) {
+    // Validate category
+    if (!InputSanitizer.validateCategory(category)) {
       return NextResponse.json(
         { success: false, error: 'Invalid category' },
         { status: 400 }
       );
     }
 
-    const memory = await addMemory(user.id, key, value, category);
+    // Sanitize inputs
+    const sanitizedKey = InputSanitizer.sanitizeText(key);
+    const sanitizedValue = InputSanitizer.sanitizeMemory(value);
+
+    if (sanitizedKey.length === 0 || sanitizedValue.length === 0) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid key or value' },
+        { status: 400 }
+      );
+    }
+
+    const memory = await addMemory(user.id, sanitizedKey, sanitizedValue, category);
 
     return NextResponse.json({ 
       success: true, 
@@ -97,6 +124,23 @@ async function handlePut(request: NextRequest, context: any) {
       );
     }
 
+    // Validate memory ID format
+    if (!InputSanitizer.validateUUID(memoryId)) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid memory ID format' },
+        { status: 400 }
+      );
+    }
+
+    // Sanitize value
+    const sanitizedValue = InputSanitizer.sanitizeMemory(value);
+    if (sanitizedValue.length === 0) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid value' },
+        { status: 400 }
+      );
+    }
+
     // Verify ownership before updating
     const existingMemory = await getUserMemory(user.id);
     const memoryExists = existingMemory.some(m => m.id === memoryId);
@@ -108,7 +152,7 @@ async function handlePut(request: NextRequest, context: any) {
       );
     }
 
-    const memory = await updateMemory(memoryId, value);
+    const memory = await updateMemory(memoryId, sanitizedValue);
 
     return NextResponse.json({ 
       success: true, 
@@ -142,6 +186,14 @@ async function handleDelete(request: NextRequest, context: any) {
     if (!memoryId) {
       return NextResponse.json(
         { success: false, error: 'Missing required field: memoryId' },
+        { status: 400 }
+      );
+    }
+
+    // Validate memory ID format
+    if (!InputSanitizer.validateUUID(memoryId)) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid memory ID format' },
         { status: 400 }
       );
     }

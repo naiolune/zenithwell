@@ -319,7 +319,7 @@ export class ServerAIService {
     // Simple keyword extraction - could be enhanced with NLP
     const keywords = [
       'anxiety', 'depression', 'stress', 'mindfulness', 'meditation',
-      'therapy', 'counseling', 'wellness', 'mental health', 'self-care',
+      'wellness', 'counseling', 'mental health', 'self-care', 'personal growth',
       'relationships', 'work', 'family', 'goals', 'progress', 'coping',
       'emotions', 'feelings', 'thoughts', 'behavior', 'patterns'
     ];

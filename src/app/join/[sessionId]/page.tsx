@@ -143,14 +143,14 @@ export default function JoinSessionPage() {
           </div>
           <CardTitle className="text-2xl">Join Group Session</CardTitle>
           <CardDescription>
-            You've been invited to join a group therapy session
+            You've been invited to join a group wellness session
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="text-center">
             <h3 className="font-semibold text-lg">{session.title}</h3>
             <p className="text-sm text-gray-600 mt-1">
-              Group Therapy Session
+              Group Wellness Session
             </p>
           </div>
 

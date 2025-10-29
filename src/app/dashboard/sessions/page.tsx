@@ -4,17 +4,20 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Plus, MessageCircle, Clock, Users } from 'lucide-react';
+import { Plus, MessageCircle, Clock, Users, Crown, Lock } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
-import { TherapySession } from '@/types';
+import { WellnessSession } from '@/types';
 
 export default function SessionsPage() {
-  const [sessions, setSessions] = useState<TherapySession[]>([]);
+  const [sessions, setSessions] = useState<WellnessSession[]>([]);
   const [loading, setLoading] = useState(true);
+  const [userSubscription, setUserSubscription] = useState<'free' | 'pro'>('free');
+  const [sessionCount, setSessionCount] = useState(0);
   const supabase = createClient();
 
   useEffect(() => {
     fetchSessions();
+    fetchUserSubscription();
   }, []);
 
   const fetchSessions = async () => {
@@ -32,6 +35,7 @@ export default function SessionsPage() {
         console.error('Error fetching sessions:', error);
       } else {
         setSessions(data || []);
+        setSessionCount(data?.length || 0);
       }
     } catch (error) {
       console.error('Error:', error);
@@ -40,29 +44,69 @@ export default function SessionsPage() {
     }
   };
 
-  const createNewSession = async () => {
+  const fetchUserSubscription = async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
       const { data, error } = await supabase
-        .from('therapy_sessions')
-        .insert({
-          user_id: user.id,
-          title: 'New Individual Session',
-          is_group: false,
-          session_type: 'individual',
-        })
-        .select()
+        .from('users')
+        .select('subscription_tier')
+        .eq('user_id', user.id)
         .single();
 
-      if (error) {
-        console.error('Error creating session:', error);
-      } else {
-        window.location.href = `/dashboard/chat/${data.session_id}`;
+      if (data) {
+        setUserSubscription(data.subscription_tier as 'free' | 'pro');
+      }
+    } catch (error) {
+      console.error('Error fetching user subscription:', error);
+    }
+  };
+
+  const createNewSession = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Get session token for authentication
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        console.error('No session token available');
+        return;
+      }
+
+      // Call server-side session creation API
+      const response = await fetch('/api/sessions/create', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          title: 'New Individual Session',
+          isGroup: false,
+          sessionType: 'individual'
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        if (result.sessionLimitExceeded) {
+          alert(result.message);
+        } else {
+          console.error('Error creating session:', result.error);
+          alert('Failed to create session. Please try again.');
+        }
+        return;
+      }
+
+      if (result.success) {
+        window.location.href = `/dashboard/chat/${result.session.session_id}`;
       }
     } catch (error) {
       console.error('Error:', error);
+      alert('Failed to create session. Please try again.');
     }
   };
 
@@ -95,7 +139,7 @@ export default function SessionsPage() {
         </div>
         <Button onClick={createNewSession} className="flex items-center space-x-2">
           <Plus className="h-4 w-4" />
-          <span>New Session</span>
+          <span>{userSubscription === 'free' && sessionCount >= 3 ? 'Session Limit Reached' : 'New Session'}</span>
         </Button>
       </div>
 
@@ -144,7 +188,7 @@ export default function SessionsPage() {
                 <div className="mt-4">
                   <Link href={`/dashboard/chat/${session.session_id}`}>
                     <Button variant="outline" className="w-full">
-                      Continue Session
+                      {userSubscription === 'pro' ? 'Continue Session' : 'Resume (Pro Only)'}
                     </Button>
                   </Link>
                 </div>

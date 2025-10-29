@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { ServerAIService } from '@/lib/ai/server-ai-service';
 import { withAPISecurity, SecurityConfigs, SecurityContext } from '@/middleware/api-security';
+import { InputSanitizer } from '@/lib/security/input-sanitizer';
+import { SecureErrorHandler } from '@/lib/security/error-handler';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -15,6 +17,21 @@ async function handleChatRequest(request: NextRequest, context: SecurityContext)
     if (!context.user) {
       return NextResponse.json({ error: 'User not authenticated' }, { status: 401 });
     }
+
+    // Validate and sanitize inputs
+    if (!InputSanitizer.validateSessionId(sessionId)) {
+      return NextResponse.json({ error: 'Invalid session ID' }, { status: 400 });
+    }
+
+    if (!message || typeof message !== 'string' || message.trim().length === 0) {
+      return NextResponse.json({ error: 'Message is required' }, { status: 400 });
+    }
+
+    if (message.length > 10000) {
+      return NextResponse.json({ error: 'Message too long' }, { status: 400 });
+    }
+
+    const sanitizedMessage = InputSanitizer.sanitizeMessage(message);
 
     // Verify user owns or can access this session
     const { data: session, error: sessionError } = await supabase
@@ -43,13 +60,70 @@ async function handleChatRequest(request: NextRequest, context: SecurityContext)
       }
     }
 
+    // Get user subscription and session details for validation
+    const { data: userData, error: userError } = await supabase
+      .from('users')
+      .select('subscription_tier')
+      .eq('user_id', context.user.id)
+      .single();
+
+    if (userError || !userData) {
+      return NextResponse.json({ error: 'User data not found' }, { status: 404 });
+    }
+
+    const { data: sessionData, error: sessionDataError } = await supabase
+      .from('therapy_sessions')
+      .select('created_at, last_message_at')
+      .eq('session_id', sessionId)
+      .single();
+
+    if (sessionDataError || !sessionData) {
+      return NextResponse.json({ error: 'Session data not found' }, { status: 404 });
+    }
+
+    // Server-side session time validation for free users
+    if (userData.subscription_tier === 'free') {
+      const sessionStartTime = new Date(sessionData.created_at);
+      const now = new Date();
+      const sessionDuration = now.getTime() - sessionStartTime.getTime();
+      const maxSessionDuration = 15 * 60 * 1000; // 15 minutes in milliseconds
+
+      if (sessionDuration > maxSessionDuration) {
+        return NextResponse.json({ 
+          error: 'Session time expired',
+          sessionExpired: true,
+          message: 'Free users are limited to 15 minutes per session. Upgrade to Pro for unlimited time.'
+        }, { status: 403 });
+      }
+    }
+
+    // Server-side session count validation for free users
+    if (userData.subscription_tier === 'free') {
+      const { data: userSessions, error: sessionsError } = await supabase
+        .from('therapy_sessions')
+        .select('session_id')
+        .eq('user_id', context.user.id);
+
+      if (sessionsError) {
+        return NextResponse.json({ error: 'Failed to validate session count' }, { status: 500 });
+      }
+
+      if (userSessions && userSessions.length > 3) {
+        return NextResponse.json({ 
+          error: 'Session limit exceeded',
+          sessionLimitExceeded: true,
+          message: 'Free users are limited to 3 sessions. Upgrade to Pro for unlimited sessions.'
+        }, { status: 403 });
+      }
+    }
+
     // Save user message to database
     const { data: userMessage, error: messageError } = await supabase
       .from('session_messages')
       .insert({
         session_id: sessionId,
         sender_type: 'user',
-        content: message
+        content: sanitizedMessage
       })
       .select()
       .single();
@@ -118,10 +192,7 @@ async function handleChatRequest(request: NextRequest, context: SecurityContext)
     });
 
   } catch (error: any) {
-    console.error('Chat API error:', error);
-    return NextResponse.json({ 
-      error: error.message || 'Internal server error' 
-    }, { status: 500 });
+    return SecureErrorHandler.handleAPIError(error, 'Chat API');
   }
 }
 

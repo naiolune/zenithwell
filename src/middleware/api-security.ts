@@ -3,6 +3,7 @@ import { AuthValidator } from '@/lib/security/auth-validator';
 import { RateLimiter } from '@/lib/security/rate-limiter';
 import { IPSecurity } from '@/lib/security/ip-security';
 import { APILogger } from '@/lib/security/api-logger';
+import { CSRFProtection } from '@/lib/security/csrf-protection';
 
 export interface SecurityConfig {
   requireAuth: boolean;
@@ -10,6 +11,7 @@ export interface SecurityConfig {
   rateLimitType?: 'ai_call' | 'general_api';
   trackSuspiciousActivity?: boolean;
   allowedMethods?: readonly string[];
+  requireCSRF?: boolean;
 }
 
 export interface SecurityContext {
@@ -88,13 +90,33 @@ export function withAPISecurity(
         );
       }
 
-      // 3. Track suspicious activity patterns
+      // 3. CSRF Protection
+      if (config.requireCSRF !== false) {
+        const csrfValidation = CSRFProtection.validateRequest(request);
+        if (!csrfValidation.valid) {
+          await APILogger.logRequest({
+            endpoint: request.nextUrl.pathname,
+            method: request.method,
+            statusCode: 403,
+            ipAddress,
+            userAgent,
+            responseTimeMs: Date.now() - startTime,
+          });
+
+          return NextResponse.json(
+            { error: csrfValidation.error || 'CSRF validation failed' },
+            { status: 403 }
+          );
+        }
+      }
+
+      // 4. Track suspicious activity patterns
       if (config.trackSuspiciousActivity) {
         await IPSecurity.trackRapidRequests(ipAddress);
         await IPSecurity.trackUnusualEndpoints(ipAddress, request.nextUrl.pathname);
       }
 
-      // 4. Authentication check
+      // 5. Authentication check
       if (config.requireAuth) {
         const authResult = await AuthValidator.validateAuth(
           request.headers.get('authorization')
@@ -265,6 +287,7 @@ export const SecurityConfigs = {
     rateLimitType: 'ai_call' as const,
     trackSuspiciousActivity: true,
     allowedMethods: ['POST'],
+    requireCSRF: true,
   },
 
   // General API endpoints - standard security
@@ -272,6 +295,7 @@ export const SecurityConfigs = {
     requireAuth: true,
     rateLimitType: 'general_api' as const,
     trackSuspiciousActivity: true,
+    requireCSRF: true,
   },
 
   // Admin endpoints - admin only, no rate limiting
@@ -279,12 +303,14 @@ export const SecurityConfigs = {
     requireAuth: true,
     requireAdmin: true,
     trackSuspiciousActivity: true,
+    requireCSRF: true,
   },
 
   // Public endpoints - no auth required
   PUBLIC: {
     requireAuth: false,
     trackSuspiciousActivity: true,
+    requireCSRF: false,
   },
 
   // Webhook endpoints - no auth, but track activity

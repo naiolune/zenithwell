@@ -518,7 +518,7 @@ export default function MemoryPage() {
               No memories yet
             </h3>
             <p className="text-gray-600 dark:text-gray-400 mb-6">
-              Complete some therapy sessions to see your progress and insights here
+              Complete some wellness sessions to see your progress and insights here
             </p>
           </CardContent>
         </Card>

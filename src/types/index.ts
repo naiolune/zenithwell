@@ -14,7 +14,7 @@ export interface AIConfig {
   created_at: string;
 }
 
-export interface TherapySession {
+export interface WellnessSession {
   session_id: string;
   user_id: string;
   title: string;

@@ -133,7 +133,7 @@ export default function NewAIConfigPage() {
       <div>
         <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Add AI Configuration</h1>
         <p className="text-gray-600 dark:text-gray-400 mt-2">
-          Configure a new AI provider for the therapy platform
+          Configure a new AI provider for the wellness platform
         </p>
       </div>
 

@@ -10,10 +10,10 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Plus, Users, Crown, Clock, Heart, Home, Users2 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { getUserSubscription, canAccessProFeature } from '@/lib/subscription';
-import { TherapySession } from '@/types';
+import { WellnessSession } from '@/types';
 
 export default function GroupSessionsPage() {
-  const [sessions, setSessions] = useState<TherapySession[]>([]);
+  const [sessions, setSessions] = useState<WellnessSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [isPro, setIsPro] = useState(false);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
