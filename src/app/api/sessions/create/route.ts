@@ -47,7 +47,7 @@ async function handleCreateSession(request: NextRequest, context: SecurityContex
     const isFirstTimeUser = await detectFirstSession(context.user.id);
     
     if (isFirstTimeUser) {
-      // For first-time users, always create an introduction session regardless of request
+      // For first-time users, try to create an introduction session
       const { data: introSession, error: introCreateError } = await supabase
         .from('therapy_sessions')
         .insert({
@@ -64,8 +64,9 @@ async function handleCreateSession(request: NextRequest, context: SecurityContex
         console.error('Error creating introduction session:', introCreateError);
         console.error('Error details:', JSON.stringify(introCreateError, null, 2));
         return NextResponse.json({ 
-          error: 'Failed to create introduction session',
-          details: introCreateError.message 
+          error: 'Database schema needs to be updated. Please contact support or try again later.',
+          details: introCreateError.message,
+          requiresMigration: true
         }, { status: 500 });
       }
 

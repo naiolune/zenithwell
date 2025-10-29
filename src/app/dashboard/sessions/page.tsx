@@ -132,6 +132,8 @@ export default function SessionsPage() {
         } else if (result.requiresIntroduction) {
           // Redirect to introduction session
           window.location.href = `/dashboard/chat/${result.introductionSessionId}`;
+        } else if (result.requiresMigration) {
+          alert('The system is being updated. Please try again in a few minutes. If the problem persists, please contact support.');
         } else {
           console.error('Error creating session:', result.error);
           alert('Failed to create session. Please try again.');
