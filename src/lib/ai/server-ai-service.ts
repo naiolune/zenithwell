@@ -457,7 +457,7 @@ export class ServerAIService {
       ];
 
       if (provider === 'openai') {
-        const tokenParam = this.getOpenAITokenParam(model, 100); // Use 100 tokens for test
+        const tokenParam = this.getOpenAITokenParam(model, 500); // Use 500 tokens for test
         console.log(`Testing OpenAI connection with model: ${model}`);
         
         const response = await aiProvider.chat.completions.create({
