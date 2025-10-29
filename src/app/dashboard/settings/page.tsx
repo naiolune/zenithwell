@@ -15,6 +15,7 @@ import { User } from '@/types';
 export default function SettingsPage() {
   const [user, setUser] = useState<User | null>(null);
   const [isPro, setIsPro] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [password, setPassword] = useState('');
@@ -27,9 +28,10 @@ export default function SettingsPage() {
   }, []);
 
   const loadUserData = async () => {
-    const { user, isPro } = await getUserSubscription();
+    const { user, isPro, isAdmin } = await getUserSubscription();
     setUser(user);
     setIsPro(isPro);
+    setIsAdmin(isAdmin);
     setLoading(false);
   };
 
@@ -281,7 +283,11 @@ export default function SettingsPage() {
                 <div>
                   <div className="font-medium text-red-900 dark:text-red-100">Delete All Data</div>
                   <div className="text-sm text-red-700 dark:text-red-300">
-                    Permanently delete all your data and start fresh. This cannot be undone.
+                    Permanently delete all your data and start fresh. 
+                    {isPro && isAdmin && ' Pro status and admin privileges are preserved.'}
+                    {isPro && !isAdmin && ' Pro status is preserved.'}
+                    {!isPro && isAdmin && ' Admin privileges are preserved.'}
+                    {' '}This cannot be undone.
                   </div>
                 </div>
               </div>
@@ -299,7 +305,11 @@ export default function SettingsPage() {
                     </DialogTitle>
                     <DialogDescription>
                       This action will permanently delete all your wellness sessions, memories, 
-                      goals, and account data. You will be signed out and need to create a new account.
+                      goals, and personal data. 
+                      {isPro && isAdmin && ' Your Pro subscription status and admin privileges will be preserved.'}
+                      {isPro && !isAdmin && ' Your Pro subscription status will be preserved.'}
+                      {!isPro && isAdmin && ' Your admin privileges will be preserved.'}
+                      {' '}You will be signed out and need to log back in.
                     </DialogDescription>
                   </DialogHeader>
                   

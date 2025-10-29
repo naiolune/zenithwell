@@ -10,6 +10,110 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+/**
+ * Generate session name and summary based on conversation content
+ */
+async function generateSessionMetadata(sessionId: string, messages: any[], aiResponse: string) {
+  try {
+    // Only generate metadata after a few messages to have enough context
+    if (messages.length < 3) {
+      return;
+    }
+
+    // Check if session already has a custom title (not the default)
+    const { data: session } = await supabase
+      .from('therapy_sessions')
+      .select('title, session_summary')
+      .eq('session_id', sessionId)
+      .single();
+
+    if (!session) return;
+
+    // Skip if session already has a custom title or summary
+    if (session.title !== 'New Individual Session' && session.title !== 'New Group Session' && session.session_summary) {
+      return;
+    }
+
+    // Create a summary of the conversation for AI analysis
+    const conversationSummary = messages
+      .slice(-10) // Last 10 messages for context
+      .map(msg => `${msg.sender_type}: ${msg.content}`)
+      .join('\n');
+
+    // Generate session name and summary using AI
+    const { data: aiConfig } = await supabase
+      .from('ai_config')
+      .select('*')
+      .eq('is_active', true)
+      .single();
+
+    if (!aiConfig) return;
+
+    const prompt = `Based on this wellness conversation, generate a concise session title (max 50 chars) and a brief summary (max 200 chars) that captures the main topics and themes discussed.
+
+Conversation:
+${conversationSummary}
+
+AI Response: ${aiResponse}
+
+Please respond in this exact format:
+TITLE: [Session Title Here]
+SUMMARY: [Brief summary of the session topics and themes]
+
+The title should be engaging and descriptive. The summary should highlight the main wellness topics, goals, or challenges discussed.`;
+
+    let aiResponse_text = '';
+    
+    if (aiConfig.provider === 'openai') {
+      const OpenAI = require('openai').default;
+      const openai = new OpenAI({ apiKey: aiConfig.api_key });
+      
+      const response = await openai.chat.completions.create({
+        model: aiConfig.model,
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 200,
+        temperature: 0.7,
+      });
+      
+      aiResponse_text = response.choices[0]?.message?.content || '';
+    } else if (aiConfig.provider === 'anthropic') {
+      const Anthropic = require('@anthropic-ai/sdk').default;
+      const anthropic = new Anthropic({ apiKey: aiConfig.api_key });
+      
+      const response = await anthropic.messages.create({
+        model: aiConfig.model,
+        max_tokens: 200,
+        messages: [{ role: 'user', content: prompt }],
+      });
+      
+      aiResponse_text = response.content[0]?.text || '';
+    }
+
+    if (!aiResponse_text) return;
+
+    // Parse the AI response
+    const titleMatch = aiResponse_text.match(/TITLE:\s*(.+)/);
+    const summaryMatch = aiResponse_text.match(/SUMMARY:\s*(.+)/);
+
+    if (titleMatch && summaryMatch) {
+      const newTitle = titleMatch[1].trim();
+      const newSummary = summaryMatch[1].trim();
+
+      // Update the session with the generated metadata
+      await supabase
+        .from('therapy_sessions')
+        .update({
+          title: newTitle,
+          session_summary: newSummary
+        })
+        .eq('session_id', sessionId);
+    }
+  } catch (error) {
+    console.error('Error generating session metadata:', error);
+    // Don't throw error as this is not critical functionality
+  }
+}
+
 async function handleChatRequest(request: NextRequest, context: SecurityContext): Promise<NextResponse> {
   try {
     const { message, sessionId } = await request.json();
@@ -184,6 +288,9 @@ async function handleChatRequest(request: NextRequest, context: SecurityContext)
       .from('therapy_sessions')
       .update({ last_message_at: new Date().toISOString() })
       .eq('session_id', sessionId);
+
+    // Generate session name and summary if this is a good time to do so
+    await generateSessionMetadata(sessionId, recentMessages, aiResponse.content!);
 
     return NextResponse.json({ 
       success: true, 

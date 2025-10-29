@@ -136,7 +136,22 @@ async function handleDeleteAllData(request: NextRequest): Promise<NextResponse> 
       );
     }
 
-    // 6. Delete all subscriptions
+    // 6. Get current user data to preserve Pro status and admin privileges
+    const { data: currentUserData, error: userSelectError } = await supabase
+      .from('users')
+      .select('subscription_tier, is_admin')
+      .eq('user_id', userId)
+      .single();
+
+    if (userSelectError) {
+      console.error('Error fetching current user data:', userSelectError);
+      return NextResponse.json(
+        { error: 'Failed to fetch current user data' },
+        { status: 500 }
+      );
+    }
+
+    // 7. Delete all subscriptions (but preserve the user's current tier)
     const { error: subscriptionsError } = await supabase
       .from('subscriptions')
       .delete()
@@ -150,12 +165,12 @@ async function handleDeleteAllData(request: NextRequest): Promise<NextResponse> 
       );
     }
 
-    // 7. Reset user data (keep account but clear personal data)
+    // 8. Reset user data (keep account but clear personal data, preserve Pro status and admin privileges)
     const { error: userUpdateError } = await supabase
       .from('users')
       .update({
-        subscription_tier: 'free',
-        is_admin: false
+        subscription_tier: currentUserData?.subscription_tier || 'free',
+        is_admin: currentUserData?.is_admin || false
       })
       .eq('user_id', userId);
 
@@ -167,7 +182,7 @@ async function handleDeleteAllData(request: NextRequest): Promise<NextResponse> 
       );
     }
 
-    // 8. Sign out user
+    // 9. Sign out user
     const { error: signOutError } = await supabase.auth.signOut();
     if (signOutError) {
       console.error('Error signing out user:', signOutError);
@@ -176,10 +191,28 @@ async function handleDeleteAllData(request: NextRequest): Promise<NextResponse> 
 
     console.log(`Complete data deletion successful for user: ${userId}`);
 
+    // Create conditional message based on user status
+    const isPro = currentUserData?.subscription_tier === 'pro';
+    const isAdmin = currentUserData?.is_admin || false;
+    
+    let message = 'All your data has been successfully deleted.';
+    if (isPro && isAdmin) {
+      message += ' Your Pro subscription status and admin privileges have been preserved.';
+    } else if (isPro) {
+      message += ' Your Pro subscription status has been preserved.';
+    } else if (isAdmin) {
+      message += ' Your admin privileges have been preserved.';
+    }
+    message += ' You have been signed out.';
+
     return NextResponse.json({
       success: true,
-      message: 'All your data has been successfully deleted. You have been signed out.',
-      deletedAt: new Date().toISOString()
+      message: message,
+      deletedAt: new Date().toISOString(),
+      preservedStatus: {
+        subscriptionTier: currentUserData?.subscription_tier || 'free',
+        isAdmin: currentUserData?.is_admin || false
+      }
     });
 
   } catch (error: any) {

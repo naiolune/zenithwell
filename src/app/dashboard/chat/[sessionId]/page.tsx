@@ -15,28 +15,33 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputMessage, setInputMessage] = useState('');
   const [loading, setLoading] = useState(false);
+  const [initializing, setInitializing] = useState(true);
   const [sessionTitle, setSessionTitle] = useState('Wellness Session');
   const [userSubscription, setUserSubscription] = useState<'free' | 'pro'>('free');
   const [sessionStartTime, setSessionStartTime] = useState<Date | null>(null);
   const [timeRemaining, setTimeRemaining] = useState<number | null>(null);
-  const [isFirstSession, setIsFirstSession] = useState(false);
   const [sessionEnded, setSessionEnded] = useState(false);
+  const [isIntroductionSession, setIsIntroductionSession] = useState(false);
+  const [showCompleteIntroduction, setShowCompleteIntroduction] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const supabase = createClient();
 
   useEffect(() => {
-    fetchSessionData();
-    fetchMessages();
-    fetchUserSubscription();
-    checkIfFirstSession();
+    initializeSession();
   }, [sessionId]);
 
   useEffect(() => {
     // Check if free user is trying to resume a session
-    if (userSubscription === 'free' && messages.length > 0) {
-      setSessionEnded(true);
+    // A session is considered "resumed" if it's older than 5 minutes
+    if (userSubscription === 'free' && sessionStartTime) {
+      const sessionAge = Date.now() - sessionStartTime.getTime();
+      const fiveMinutesInMs = 5 * 60 * 1000;
+      
+      if (sessionAge > fiveMinutesInMs) {
+        setSessionEnded(true);
+      }
     }
-  }, [userSubscription, messages.length]);
+  }, [userSubscription, sessionStartTime]);
 
   // Client-side timer for display only (server-side validation is authoritative)
   useEffect(() => {
@@ -62,115 +67,129 @@ export default function ChatPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const fetchSessionData = async () => {
+  const initializeSession = async () => {
     try {
-      const { data, error } = await supabase
-        .from('therapy_sessions')
-        .select('title, created_at')
-        .eq('session_id', sessionId)
-        .single();
-
-      if (data) {
-        setSessionTitle(data.title);
-        setSessionStartTime(new Date(data.created_at));
+      setInitializing(true);
+      
+      // Get session token for authentication
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error('Not authenticated');
       }
-    } catch (error) {
-      console.error('Error fetching session data:', error);
-    }
-  };
 
-  const fetchUserSubscription = async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      // Call server-side initialization API
+      const response = await fetch('/api/sessions/init', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          sessionId,
+        }),
+      });
 
-      const { data, error } = await supabase
-        .from('users')
-        .select('subscription_tier')
-        .eq('user_id', user.id)
-        .single();
-
-      if (data) {
-        setUserSubscription(data.subscription_tier as 'free' | 'pro');
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to initialize session');
       }
-    } catch (error) {
-      console.error('Error fetching user subscription:', error);
-    }
-  };
 
-  const checkIfFirstSession = async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      const result = await response.json();
 
-      const { data, error } = await supabase
-        .from('therapy_sessions')
-        .select('session_id')
-        .eq('user_id', user.id)
-        .lt('created_at', new Date(Date.now() - 5 * 60 * 1000).toISOString()) // 5 minutes ago
-        .limit(1);
+      if (!result.success) {
+        throw new Error(result.error || 'Session initialization failed');
+      }
 
-      setIsFirstSession(!data || data.length === 0);
-    } catch (error) {
-      console.error('Error checking first session:', error);
-    }
-  };
-
-  const fetchMessages = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('session_messages')
-        .select('*')
-        .eq('session_id', sessionId)
-        .order('timestamp', { ascending: true });
-
-      if (error) {
-        console.error('Error fetching messages:', error);
-      } else {
-        const formattedMessages: ChatMessage[] = (data || []).map(msg => ({
-          id: msg.message_id,
-          content: msg.content,
-          sender: msg.sender_type as 'user' | 'ai',
-          timestamp: new Date(msg.timestamp),
-        }));
-        
-        // Add AI introduction for first session if no messages exist
-        if (formattedMessages.length === 0 && isFirstSession) {
-          const aiIntroduction: ChatMessage = {
-            id: 'ai-intro',
-            content: `Hello! I'm your AI Wellness Coach. I'm here to support you on your wellness journey. Whether you're looking to work on personal growth, manage stress, build better habits, or explore your thoughts and feelings, I'm here to listen and help guide you.
-
-I use evidence-based approaches to help you:
-• Develop coping strategies for stress and anxiety
-• Build emotional resilience and self-awareness
-• Set and achieve personal wellness goals
-• Process difficult emotions and experiences
-• Develop healthier thought patterns
-
-What would you like to work on today? Feel free to share what's on your mind, and we can explore it together.`,
-            sender: 'ai',
-            timestamp: new Date(),
-          };
-          formattedMessages.push(aiIntroduction);
-        } else if (formattedMessages.length === 0 && !isFirstSession) {
-          const aiGreeting: ChatMessage = {
-            id: 'ai-greeting',
-            content: `Welcome back! I'm glad to see you again. How are you feeling today? Is there anything specific you'd like to work on or discuss?`,
-            sender: 'ai',
-            timestamp: new Date(),
-          };
-          formattedMessages.push(aiGreeting);
+      // Set session data from server response
+      setSessionTitle(result.session.title);
+      setSessionStartTime(new Date(result.session.created_at));
+      setUserSubscription(result.userSubscription);
+      setMessages(result.messages);
+      
+      // Check if this is an introduction session
+      if (result.session.session_type === 'introduction') {
+        setIsIntroductionSession(true);
+        // Check if user has provided enough responses to complete introduction
+        const userMessages = result.messages.filter((msg: ChatMessage) => msg.sender === 'user');
+        if (userMessages.length >= 2) { // At least 2 user responses
+          setShowCompleteIntroduction(true);
         }
+      }
+
+    } catch (error) {
+      console.error('Error initializing session:', error);
+      // Add error message
+      const errorMessage: ChatMessage = {
+        id: Date.now().toString(),
+        content: 'Sorry, I encountered an error initializing the session. Please try refreshing the page.',
+        sender: 'ai',
+        timestamp: new Date(),
+      };
+      setMessages([errorMessage]);
+    } finally {
+      setInitializing(false);
+    }
+  };
+
+  const completeIntroduction = async () => {
+    try {
+      setLoading(true);
+      
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error('Not authenticated');
+      }
+
+      const response = await fetch('/api/sessions/complete-introduction', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          sessionId,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to complete introduction');
+      }
+
+      const result = await response.json();
+
+      if (result.success) {
+        // Add completion message to the chat
+        const completionMessage: ChatMessage = {
+          id: 'intro-complete',
+          content: `Thank you for completing your introduction! I've extracted and stored your goals:
+
+**Your Wellness Goals:**
+${result.goals.map((goal: any, index: number) => `${index + 1}. ${goal.goal_text}`).join('\n')}
+
+These goals will guide our future sessions together. You can now create regular wellness sessions whenever you're ready!`,
+          sender: 'ai',
+          timestamp: new Date(),
+        };
+        setMessages(prev => [...prev, completionMessage]);
+        setShowCompleteIntroduction(false);
+        setIsIntroductionSession(false);
         
-        setMessages(formattedMessages);
+        // Update session title
+        setSessionTitle('Introduction Complete - Goals Set');
+      } else {
+        throw new Error(result.error || 'Failed to complete introduction');
       }
     } catch (error) {
-      console.error('Error:', error);
+      console.error('Error completing introduction:', error);
+      alert('Failed to complete introduction. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
   const sendMessage = async () => {
-    if (!inputMessage.trim() || loading || sessionEnded) return;
+    if (!inputMessage.trim() || loading || sessionEnded || initializing) return;
 
     const userMessage: ChatMessage = {
       id: Date.now().toString(),
@@ -236,6 +255,14 @@ What would you like to work on today? Feel free to share what's on your mind, an
         timestamp: new Date(),
       };
       setMessages(prev => [...prev, aiMessage]);
+      
+      // Check if we should show complete introduction button after this message
+      if (isIntroductionSession && !showCompleteIntroduction) {
+        const userMessages = [...messages, userMessage].filter(msg => msg.sender === 'user');
+        if (userMessages.length >= 2) {
+          setShowCompleteIntroduction(true);
+        }
+      }
 
     } catch (error) {
       console.error('Error sending message:', error);
@@ -272,30 +299,59 @@ What would you like to work on today? Feel free to share what's on your mind, an
   return (
     <div className="h-screen flex flex-col bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900">
       {/* Header */}
-      <div className="bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm border-b border-slate-200 dark:border-slate-700 p-4 flex items-center justify-between shadow-sm">
+      <div className="bg-white/90 dark:bg-slate-800/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-700 p-4 flex items-center justify-between shadow-lg">
         <div className="flex items-center space-x-4">
           <Button
             variant="ghost"
             size="sm"
             onClick={() => router.push('/dashboard/sessions')}
-            className="hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+            className="hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors rounded-full"
           >
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <div>
-            <h1 className="text-lg font-semibold text-slate-900 dark:text-white">{sessionTitle}</h1>
-            <p className="text-sm text-slate-500 dark:text-slate-400">AI Wellness Coach</p>
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-full flex items-center justify-center">
+              <span className="text-white font-semibold text-sm">AI</span>
+            </div>
+            <div>
+              <h1 className="text-lg font-semibold text-slate-900 dark:text-white">{sessionTitle}</h1>
+              <p className="text-sm text-slate-500 dark:text-slate-400">AI Wellness Coach</p>
+            </div>
           </div>
         </div>
-        <div className="flex items-center space-x-2">
-          <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-          <span className="text-sm text-slate-500 dark:text-slate-400">Online</span>
+        <div className="flex items-center space-x-3">
+          {userSubscription === 'free' && timeRemaining !== null && (
+            <div className="flex items-center space-x-2 bg-amber-50 dark:bg-amber-900/20 px-3 py-1.5 rounded-full">
+              <Clock className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+              <span className="text-sm font-medium text-amber-700 dark:text-amber-300">
+                {formatTime(timeRemaining)}
+              </span>
+            </div>
+          )}
+          <div className="flex items-center space-x-2">
+            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+            <span className="text-sm text-slate-500 dark:text-slate-400">Online</span>
+          </div>
         </div>
       </div>
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-6 space-y-6">
-        {sessionEnded && userSubscription === 'free' ? (
+      {/* Messages Container */}
+      <div className="flex-1 overflow-hidden">
+        <div className="h-full max-w-4xl mx-auto px-4 py-6">
+          <div className="h-full overflow-y-auto space-y-6 scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-600 scrollbar-track-transparent">
+        {initializing ? (
+          <div className="flex flex-col items-center justify-center h-full text-center">
+            <div className="w-16 h-16 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-full flex items-center justify-center mb-4 animate-pulse">
+              <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+              </svg>
+            </div>
+            <h3 className="text-xl font-semibold text-slate-900 dark:text-white mb-2">Initializing Session</h3>
+            <p className="text-slate-600 dark:text-slate-400 max-w-md">
+              Setting up your wellness session...
+            </p>
+          </div>
+        ) : sessionEnded && userSubscription === 'free' ? (
           <div className="flex flex-col items-center justify-center h-full text-center">
             <div className="w-16 h-16 bg-gradient-to-br from-red-500 to-pink-600 rounded-full flex items-center justify-center mb-4">
               <Lock className="w-8 h-8 text-white" />
@@ -321,27 +377,15 @@ What would you like to work on today? Feel free to share what's on your mind, an
               </Button>
             </div>
           </div>
-        ) : messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-center">
-            <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-full flex items-center justify-center mb-4">
-              <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-              </svg>
-            </div>
-            <h3 className="text-xl font-semibold text-slate-900 dark:text-white mb-2">Welcome to your Wellness Session</h3>
-            <p className="text-slate-600 dark:text-slate-400 max-w-md">
-              Start a conversation with your AI wellness coach. Share your thoughts, feelings, or any wellness goals you'd like to work on.
-            </p>
-          </div>
         ) : (
-          messages.map((message) => (
+          messages.map((message, index) => (
             <div
               key={message.id}
-              className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'} group`}
+              className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'} group mb-6`}
             >
-              <div className={`flex items-start space-x-3 max-w-2xl ${message.sender === 'user' ? 'flex-row-reverse space-x-reverse' : ''}`}>
+              <div className={`flex items-start space-x-3 max-w-3xl ${message.sender === 'user' ? 'flex-row-reverse space-x-reverse' : ''}`}>
                 {/* Avatar */}
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold shadow-lg ${
                   message.sender === 'user' 
                     ? 'bg-gradient-to-br from-blue-500 to-indigo-600 text-white' 
                     : 'bg-gradient-to-br from-emerald-500 to-teal-600 text-white'
@@ -350,21 +394,36 @@ What would you like to work on today? Feel free to share what's on your mind, an
                 </div>
                 
                 {/* Message */}
-                <div className={`flex flex-col space-y-1 ${message.sender === 'user' ? 'items-end' : 'items-start'}`}>
-                  <div className={`px-4 py-3 rounded-2xl shadow-sm ${
+                <div className={`flex flex-col space-y-2 ${message.sender === 'user' ? 'items-end' : 'items-start'}`}>
+                  <div className={`px-6 py-4 rounded-3xl shadow-lg max-w-2xl ${
                     message.sender === 'user' 
-                      ? 'bg-gradient-to-br from-blue-500 to-indigo-600 text-white rounded-br-md' 
-                      : 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white border border-slate-200 dark:border-slate-700 rounded-bl-md'
+                      ? 'bg-gradient-to-br from-blue-500 to-indigo-600 text-white rounded-br-lg' 
+                      : 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white border border-slate-200 dark:border-slate-700 rounded-bl-lg'
                   }`}>
                     <p className="text-sm whitespace-pre-wrap leading-relaxed">{message.content}</p>
                   </div>
-                  <span className="text-xs text-slate-500 dark:text-slate-400 px-1">
-                    {message.timestamp.toLocaleTimeString('en-US', { 
-                      hour: '2-digit', 
-                      minute: '2-digit',
-                      hour12: true 
-                    })}
-                  </span>
+                  <div className={`flex items-center space-x-2 ${message.sender === 'user' ? 'flex-row-reverse space-x-reverse' : ''}`}>
+                    <span className="text-xs text-slate-500 dark:text-slate-400 px-2">
+                      {message.timestamp instanceof Date 
+                        ? message.timestamp.toLocaleTimeString('en-US', { 
+                            hour: '2-digit', 
+                            minute: '2-digit',
+                            hour12: true 
+                          })
+                        : new Date(message.timestamp).toLocaleTimeString('en-US', { 
+                            hour: '2-digit', 
+                            minute: '2-digit',
+                            hour12: true 
+                          })
+                      }
+                    </span>
+                    {message.sender === 'ai' && (
+                      <div className="flex items-center space-x-1">
+                        <div className="w-1 h-1 bg-emerald-400 rounded-full"></div>
+                        <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">AI Coach</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -390,7 +449,34 @@ What would you like to work on today? Feel free to share what's on your mind, an
           </div>
         )}
         <div ref={messagesEndRef} />
+          </div>
+        </div>
       </div>
+
+      {/* Complete Introduction Button */}
+      {showCompleteIntroduction && (
+        <div className="bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/20 border-t border-emerald-200 dark:border-emerald-700 p-4">
+          <div className="max-w-4xl mx-auto text-center">
+            <p className="text-sm text-emerald-700 dark:text-emerald-300 mb-3">
+              Ready to complete your introduction? I'll extract your goals and prepare for future sessions.
+            </p>
+            <Button
+              onClick={completeIntroduction}
+              disabled={loading}
+              className="bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white px-6 py-2 rounded-full font-medium transition-all duration-200"
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Completing Introduction...
+                </>
+              ) : (
+                'Complete Introduction & Set Goals'
+              )}
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Input */}
       <div className="bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm border-t border-slate-200 dark:border-slate-700 p-4 shadow-lg">
@@ -403,13 +489,13 @@ What would you like to work on today? Feel free to share what's on your mind, an
                 onKeyPress={handleKeyPress}
                 placeholder="Share your thoughts, feelings, or wellness goals..."
                 className="w-full min-h-[48px] max-h-32 px-4 py-3 pr-12 border border-slate-300 dark:border-slate-600 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent resize-none dark:bg-slate-900 dark:text-white placeholder-slate-500 dark:placeholder-slate-400 transition-all duration-200"
-                disabled={loading || sessionEnded}
+                disabled={loading || sessionEnded || initializing}
                 rows={1}
               />
               <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
                 <Button
                   onClick={sendMessage}
-                  disabled={!inputMessage.trim() || loading || sessionEnded}
+                  disabled={!inputMessage.trim() || loading || sessionEnded || initializing}
                   size="sm"
                   className="w-8 h-8 p-0 rounded-full bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
                 >

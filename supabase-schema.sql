@@ -26,6 +26,7 @@ CREATE TABLE public.therapy_sessions (
   user_id UUID REFERENCES public.users(user_id) ON DELETE CASCADE NOT NULL,
   title TEXT NOT NULL,
   is_group BOOLEAN DEFAULT false,
+  session_type TEXT DEFAULT 'regular' CHECK (session_type IN ('regular', 'introduction')),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   last_message_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   session_summary TEXT
@@ -70,6 +71,17 @@ CREATE TABLE public.subscriptions (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Create user goals table
+CREATE TABLE public.user_goals (
+  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  user_id UUID REFERENCES public.users(user_id) ON DELETE CASCADE NOT NULL,
+  goal_text TEXT NOT NULL,
+  status TEXT DEFAULT 'active' CHECK (status IN ('active', 'achieved', 'paused')),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  achieved_at TIMESTAMP WITH TIME ZONE,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- Create indexes for better performance
 CREATE INDEX idx_therapy_sessions_user_id ON public.therapy_sessions(user_id);
 CREATE INDEX idx_therapy_sessions_created_at ON public.therapy_sessions(created_at DESC);
@@ -78,6 +90,8 @@ CREATE INDEX idx_session_messages_timestamp ON public.session_messages(timestamp
 CREATE INDEX idx_session_participants_session_id ON public.session_participants(session_id);
 CREATE INDEX idx_conversation_memory_user_id ON public.conversation_memory(user_id);
 CREATE INDEX idx_subscriptions_user_id ON public.subscriptions(user_id);
+CREATE INDEX idx_user_goals_user_id ON public.user_goals(user_id);
+CREATE INDEX idx_user_goals_status ON public.user_goals(status);
 
 -- Row Level Security (RLS) policies
 
@@ -89,6 +103,7 @@ ALTER TABLE public.session_messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.session_participants ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.conversation_memory ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.subscriptions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.user_goals ENABLE ROW LEVEL SECURITY;
 
 -- Users table policies
 CREATE POLICY "Users can view own profile" ON public.users
@@ -208,3 +223,19 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- User goals policies
+CREATE POLICY "Users can view own goals" ON public.user_goals
+  FOR SELECT USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can create own goals" ON public.user_goals
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update own goals" ON public.user_goals
+  FOR UPDATE USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete own goals" ON public.user_goals
+  FOR DELETE USING (auth.uid() = user_id);
+
+CREATE POLICY "Service role can manage goals" ON public.user_goals
+  FOR ALL USING (auth.role() = 'service_role');

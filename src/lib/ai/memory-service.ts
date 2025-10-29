@@ -336,14 +336,19 @@ export async function formatMemoryContext(userId: string): Promise<string> {
 /**
  * Check if this is the user's first session
  */
-export async function detectFirstSession(userId: string): Promise<boolean> {
+export async function detectFirstSession(userId: string, excludeSessionId?: string): Promise<boolean> {
   try {
-    const { data, error } = await supabase
+    let query = supabase
       .from('therapy_sessions')
       .select('session_id')
-      .eq('user_id', userId)
-      .lt('created_at', new Date(Date.now() - 5 * 60 * 1000).toISOString()) // 5 minutes ago
-      .limit(1);
+      .eq('user_id', userId);
+
+    // Exclude the current session if provided
+    if (excludeSessionId) {
+      query = query.neq('session_id', excludeSessionId);
+    }
+
+    const { data, error } = await query.limit(1);
 
     if (error) {
       console.error('Error detecting first session:', error);

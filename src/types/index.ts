@@ -1,7 +1,8 @@
 export interface User {
-  id: string;
+  user_id: string;
   email: string;
   subscription_tier: 'free' | 'pro';
+  is_admin: boolean;
   created_at: string;
 }
 
@@ -19,6 +20,7 @@ export interface WellnessSession {
   user_id: string;
   title: string;
   is_group: boolean;
+  session_type: 'regular' | 'introduction';
   created_at: string;
   last_message_at: string;
   session_summary?: string;
@@ -55,6 +57,16 @@ export interface Subscription {
   stripe_subscription_id: string;
   status: 'active' | 'canceled' | 'past_due' | 'unpaid';
   current_period_end: string;
+}
+
+export interface UserGoal {
+  id: string;
+  user_id: string;
+  goal_text: string;
+  status: 'active' | 'achieved' | 'paused';
+  created_at: string;
+  achieved_at?: string;
+  updated_at: string;
 }
 
 export interface ChatMessage {

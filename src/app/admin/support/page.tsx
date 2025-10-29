@@ -57,9 +57,15 @@ export default function AdminSupportPage() {
   const fetchUsers = async () => {
     try {
       // Check admin status first
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        console.error('User not authenticated');
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      
+      if (authError) {
+        console.error('Authentication error in fetchUsers:', authError);
+        return;
+      }
+      
+      if (!user || !user.id) {
+        console.error('User not authenticated or no user ID found');
         return;
       }
 
@@ -69,7 +75,12 @@ export default function AdminSupportPage() {
         .eq('user_id', user.id)
         .single();
 
-      if (profileError || !userProfile?.is_admin) {
+      if (profileError) {
+        console.error('Error fetching admin status:', profileError);
+        return;
+      }
+
+      if (!userProfile?.is_admin) {
         console.error('Admin privileges required to fetch users');
         return;
       }
@@ -100,11 +111,17 @@ export default function AdminSupportPage() {
     
     for (const user of userList) {
       try {
+        // Skip users with invalid IDs
+        if (!user.user_id || user.user_id === 'undefined') {
+          console.warn('Skipping user with invalid ID:', user);
+          continue;
+        }
+
         // Get session count and types
         const { data: sessions } = await supabase
           .from('therapy_sessions')
           .select('session_id, is_group, last_message_at')
-          .eq('user_id', user.id);
+          .eq('user_id', user.user_id);
 
         // Get message count
         const { data: messages } = await supabase
@@ -126,7 +143,7 @@ export default function AdminSupportPage() {
           ? Math.max(...sessions.map(s => new Date(s.last_message_at).getTime()))
           : null;
 
-        stats[user.id] = {
+        stats[user.user_id] = {
           totalSessions,
           totalMessages,
           lastActivity: lastActivity ? new Date(lastActivity).toISOString() : null,
@@ -135,8 +152,8 @@ export default function AdminSupportPage() {
           individualSessions
         };
       } catch (error) {
-        console.error(`Error fetching stats for user ${user.id}:`, error);
-        stats[user.id] = {
+        console.error(`Error fetching stats for user ${user.user_id}:`, error);
+        stats[user.user_id] = {
           totalSessions: 0,
           totalMessages: 0,
           lastActivity: null,
@@ -158,7 +175,7 @@ export default function AdminSupportPage() {
 
     const filtered = users.filter(user =>
       user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.id.toLowerCase().includes(searchTerm.toLowerCase())
+      user.user_id.toLowerCase().includes(searchTerm.toLowerCase())
     );
     setFilteredUsers(filtered);
   };
@@ -167,8 +184,16 @@ export default function AdminSupportPage() {
     setUpdating(true);
     try {
       // Check admin status first
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      
+      if (authError) {
+        console.error('Authentication error in updateUserTier:', authError);
+        alert('Authentication error. Please log in again.');
+        return;
+      }
+      
+      if (!user || !user.id) {
+        console.error('No user or user ID found in updateUserTier');
         alert('You must be logged in to update user tiers');
         return;
       }
@@ -179,8 +204,20 @@ export default function AdminSupportPage() {
         .eq('user_id', user.id)
         .single();
 
-      if (profileError || !userProfile?.is_admin) {
+      if (profileError) {
+        console.error('Error fetching admin status:', profileError);
+        alert('Failed to verify admin privileges');
+        return;
+      }
+
+      if (!userProfile?.is_admin) {
         alert('Admin privileges required to update user tiers');
+        return;
+      }
+
+      if (!userId || userId === 'undefined') {
+        console.error('Invalid userId provided:', userId);
+        alert('Invalid user ID provided');
         return;
       }
 
@@ -325,7 +362,7 @@ export default function AdminSupportPage() {
           {/* Users List */}
           <div className="space-y-4">
             {filteredUsers.map((user) => (
-              <Card key={user.id} className="hover:shadow-md transition-shadow">
+              <Card key={user.user_id} className="hover:shadow-md transition-shadow">
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-4">
@@ -336,7 +373,7 @@ export default function AdminSupportPage() {
                       </div>
                       <div>
                         <p className="font-medium text-gray-900 dark:text-white">{user.email}</p>
-                        <p className="text-sm text-gray-600 dark:text-gray-400">ID: {user.id}</p>
+                        <p className="text-sm text-gray-600 dark:text-gray-400">ID: {user.user_id}</p>
                         <p className="text-sm text-gray-500 dark:text-gray-400">
                           Joined: {formatDate(user.created_at)}
                         </p>
@@ -358,7 +395,7 @@ export default function AdminSupportPage() {
                         {user.subscription_tier === 'free' ? (
                           <Button
                             size="sm"
-                            onClick={() => updateUserTier(user.id, 'pro')}
+                            onClick={() => updateUserTier(user.user_id, 'pro')}
                             disabled={updating}
                           >
                             <Crown className="h-4 w-4 mr-1" />
@@ -368,7 +405,7 @@ export default function AdminSupportPage() {
                           <Button
                             size="sm"
                             variant="destructive"
-                            onClick={() => updateUserTier(user.id, 'free')}
+                            onClick={() => updateUserTier(user.user_id, 'free')}
                             disabled={updating}
                           >
                             <UserMinus className="h-4 w-4 mr-1" />
@@ -413,7 +450,7 @@ export default function AdminSupportPage() {
                 </div>
                 <div>
                   <h3 className="text-lg font-semibold dark:text-white">{selectedUser.email}</h3>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">User ID: {selectedUser.id}</p>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">User ID: {selectedUser.user_id}</p>
                 </div>
               </div>
 
@@ -439,7 +476,7 @@ export default function AdminSupportPage() {
                 <div className="flex space-x-4">
                   {selectedUser.subscription_tier === 'free' ? (
                     <Button
-                      onClick={() => updateUserTier(selectedUser.id, 'pro')}
+                      onClick={() => updateUserTier(selectedUser.user_id, 'pro')}
                       disabled={updating}
                       className="flex items-center"
                     >
@@ -449,7 +486,7 @@ export default function AdminSupportPage() {
                   ) : (
                     <Button
                       variant="destructive"
-                      onClick={() => updateUserTier(selectedUser.id, 'free')}
+                      onClick={() => updateUserTier(selectedUser.user_id, 'free')}
                       disabled={updating}
                       className="flex items-center"
                     >

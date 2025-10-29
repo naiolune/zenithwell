@@ -97,7 +97,7 @@ export class ServerAIService {
           }
 
           // Check if first session
-          isFirstSession = await detectFirstSession(userId);
+          isFirstSession = await detectFirstSession(userId, sessionId);
 
           // Get user memory
           userMemory = await getUserMemory(userId);

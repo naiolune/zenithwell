@@ -107,6 +107,48 @@ export class InputSanitizer {
   }
 
   /**
+   * Validate session title
+   */
+  static validateSessionTitle(input: string): boolean {
+    if (!input || typeof input !== 'string') {
+      return false;
+    }
+    const sanitized = this.sanitizeText(input);
+    return sanitized.length >= 1 && sanitized.length <= 100;
+  }
+
+  /**
+   * Validate session summary
+   */
+  static validateSessionSummary(input: string): boolean {
+    if (!input || typeof input !== 'string') {
+      return false;
+    }
+    const sanitized = this.sanitizeText(input);
+    return sanitized.length <= 1000; // Allow empty summaries
+  }
+
+  /**
+   * Sanitize session title
+   */
+  static sanitizeSessionTitle(input: string): string {
+    if (!input || typeof input !== 'string') {
+      return '';
+    }
+    return this.sanitizeText(input).substring(0, 100);
+  }
+
+  /**
+   * Sanitize session summary
+   */
+  static sanitizeSessionSummary(input: string): string {
+    if (!input || typeof input !== 'string') {
+      return '';
+    }
+    return this.sanitizeText(input).substring(0, 1000);
+  }
+
+  /**
    * Validate user ID
    */
   static validateUserId(input: string): boolean {
