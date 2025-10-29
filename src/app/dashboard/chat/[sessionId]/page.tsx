@@ -1,12 +1,20 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { Send, ArrowLeft, Loader2, Clock, Crown, Lock } from 'lucide-react';
+import { ArrowLeft, Clock } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { ChatMessage } from '@/types';
+import SessionSidebar from '@/components/chat/SessionSidebar';
+import ContextPanel from '@/components/chat/ContextPanel';
+import SessionLockBanner from '@/components/chat/SessionLockBanner';
+import BreakPrompt from '@/components/chat/BreakPrompt';
+import ChatInput from '@/components/chat/ChatInput';
+import QuickActions from '@/components/chat/QuickActions';
+import MessageBubble from '@/components/chat/MessageBubble';
+import EmergencyResources from '@/components/EmergencyResources';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 export default function ChatPage() {
   const params = useParams();
@@ -27,9 +35,22 @@ export default function ChatPage() {
   const [pendingMessage, setPendingMessage] = useState<ChatMessage | null>(null);
   const [isSessionLocked, setIsSessionLocked] = useState(false);
   const [lockReason, setLockReason] = useState<string | null>(null);
-  const [lockedBy, setLockedBy] = useState<string | null>(null);
+  const [showIntroductionLockedModal, setShowIntroductionLockedModal] = useState(false);
+  const [showBreakPrompt, setShowBreakPrompt] = useState(false);
+  const [showEmergencyResources, setShowEmergencyResources] = useState(false);
+  const [completingIntroduction, setCompletingIntroduction] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const supabase = createClient();
+  const isIntroductionLock = lockReason === 'introduction_complete';
+
+  const messageStats = useMemo(() => {
+    const coachCount = messages.filter(msg => msg.sender === 'ai').length;
+    return {
+      total: messages.length,
+      coachCount,
+      userCount: messages.length - coachCount,
+    };
+  }, [messages]);
 
   useEffect(() => {
     initializeSession();
@@ -118,8 +139,10 @@ export default function ChatPage() {
       setUserSubscription(result.userSubscription);
       setMessages(result.messages);
       setIsSessionLocked(result.session.is_locked || false);
-      setLockReason(result.session.lock_reason);
-      setLockedBy(result.session.locked_by);
+      const sessionLockReason = result.session.lock_reason;
+      setLockReason(sessionLockReason);
+      setShowEmergencyResources(false);
+      setShowBreakPrompt(false);
       
       // Check if this is an introduction session
       if (result.session.session_type === 'introduction') {
@@ -129,6 +152,10 @@ export default function ChatPage() {
         if (userMessages.length >= 2) { // At least 2 user responses
           setShowCompleteIntroduction(true);
         }
+      }
+
+      if ((result.session.session_type === 'introduction' || sessionLockReason === 'introduction_complete') && result.session.is_locked) {
+        setShowIntroductionLockedModal(true);
       }
 
     } catch (error) {
@@ -148,7 +175,7 @@ export default function ChatPage() {
 
   const completeIntroduction = async () => {
     try {
-      setLoading(true);
+      setCompletingIntroduction(true);
       
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
@@ -186,6 +213,8 @@ Ready to start your first regular wellness session?`,
         setMessages(prev => [...prev, completionMessage]);
         setShowCompleteIntroduction(false);
         setIsIntroductionSession(false);
+        setIsSessionLocked(true);
+        setLockReason('introduction_complete');
         
         // Update session title
         setSessionTitle('Introduction Complete - Goals Set');
@@ -196,7 +225,7 @@ Ready to start your first regular wellness session?`,
       console.error('Error completing introduction:', error);
       alert('Failed to complete introduction. Please try again.');
     } finally {
-      setLoading(false);
+      setCompletingIntroduction(false);
     }
   };
 
@@ -441,7 +470,7 @@ Ready to start your first regular wellness session?`,
     }
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
+  const handleInputKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       sendMessage();
@@ -454,289 +483,271 @@ Ready to start your first regular wellness session?`,
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
 
-  const canResumeSession = () => {
-    return userSubscription === 'pro';
+  const handleSuggestBreak = () => {
+    if (!isSessionLocked) {
+      setShowBreakPrompt(true);
+    }
   };
 
+  const handleEmergencyResources = () => {
+    setShowEmergencyResources(true);
+  };
+
+  const handleCloseEmergencyResources = () => {
+    setShowEmergencyResources(false);
+  };
+
+  const handleEndSession = () => {
+    router.push('/dashboard/sessions');
+  };
+
+  const handleAddCoachNote = () => {
+    alert('Session notes will be available soon.');
+  };
+
+  const handleScheduleCheckIn = () => {
+    alert('Scheduling check-ins will be available soon.');
+  };
+
+  const handleAddMemoryTag = () => {
+    alert('Memory tagging will be available soon.');
+  };
+
+  const handleBreakAccept = () => {
+    setShowBreakPrompt(false);
+    alert('Take a deep breath in for 4 seconds, hold for 4, exhale for 6. Repeat 5 times.');
+  };
+
+  const handleBreakDismiss = () => {
+    setShowBreakPrompt(false);
+  };
+
+  const handleStartFirstSession = () => {
+    router.push('/dashboard/sessions');
+  };
+
+  const renderQuickActions = () =>
+    !isSessionLocked && !sessionEnded ? (
+      <QuickActions
+        onSuggestBreak={handleSuggestBreak}
+        onOpenEmergencyResources={handleEmergencyResources}
+        onEndSession={handleEndSession}
+        onAddCoachNote={handleAddCoachNote}
+        onScheduleCheckIn={handleScheduleCheckIn}
+        onAddMemoryTag={handleAddMemoryTag}
+      />
+    ) : null;
+
   return (
-    <div className="h-screen flex flex-col bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900">
-      {/* Header */}
-      <div className="bg-white/90 dark:bg-slate-800/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-700 p-4 flex items-center justify-between shadow-lg">
-        <div className="flex items-center space-x-4">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => router.push('/dashboard/sessions')}
-            className="hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors rounded-full"
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-full flex items-center justify-center">
-              <span className="text-white font-semibold text-sm">👤</span>
-            </div>
-            <div>
-              <h1 className="text-lg font-semibold text-slate-900 dark:text-white">{sessionTitle}</h1>
-              <p className="text-sm text-slate-500 dark:text-slate-400">Your Coach</p>
-            </div>
-          </div>
-        </div>
-        <div className="flex items-center space-x-3">
-          {userSubscription === 'free' && timeRemaining !== null && (
-            <div className="flex items-center space-x-2 bg-amber-50 dark:bg-amber-900/20 px-3 py-1.5 rounded-full">
-              <Clock className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-              <span className="text-sm font-medium text-amber-700 dark:text-amber-300">
-                {formatTime(timeRemaining)}
-              </span>
-            </div>
-          )}
-          <div className="flex items-center space-x-2">
-            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-            <span className="text-sm text-slate-500 dark:text-slate-400">Online</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Messages Container */}
-      <div className="flex-1 overflow-hidden">
-        <div className="h-full max-w-4xl mx-auto px-4 py-6">
-          <div className="h-full overflow-y-auto space-y-6 scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-600 scrollbar-track-transparent">
-        {initializing ? (
-          <div className="flex flex-col items-center justify-center h-full text-center">
-            <div className="w-16 h-16 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-full flex items-center justify-center mb-4 animate-pulse">
-              <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-              </svg>
-            </div>
-            <h3 className="text-xl font-semibold text-slate-900 dark:text-white mb-2">Initializing Session</h3>
-            <p className="text-slate-600 dark:text-slate-400 max-w-md">
-              Setting up your wellness session...
-            </p>
-          </div>
-        ) : sessionEnded && userSubscription === 'free' ? (
-          <div className="flex flex-col items-center justify-center h-full text-center">
-            <div className="w-16 h-16 bg-gradient-to-br from-red-500 to-pink-600 rounded-full flex items-center justify-center mb-4">
-              <Lock className="w-8 h-8 text-white" />
-            </div>
-            <h3 className="text-xl font-semibold text-slate-900 dark:text-white mb-2">Session Access Restricted</h3>
-            <p className="text-slate-600 dark:text-slate-400 max-w-md mb-6">
-              Free users cannot resume existing sessions. You can only start new sessions. Upgrade to Pro to resume any session at any time.
-            </p>
-            <div className="flex space-x-4">
-              <Button
-                onClick={() => router.push('/dashboard/sessions')}
-                variant="outline"
-                className="px-6"
-              >
-                Back to Sessions
-              </Button>
-              <Button
-                onClick={() => router.push('/dashboard/settings')}
-                className="px-6 bg-gradient-to-r from-yellow-500 to-orange-600 hover:from-yellow-600 hover:to-orange-700"
-              >
-                <Crown className="w-4 h-4 mr-2" />
-                Upgrade to Pro
-              </Button>
-            </div>
-          </div>
-        ) : (
-          messages.map((message, index) => (
-            <div
-              key={message.id}
-              className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'} group mb-6`}
-            >
-              <div className={`flex items-start space-x-3 max-w-3xl ${message.sender === 'user' ? 'flex-row-reverse space-x-reverse' : ''}`}>
-                {/* Avatar */}
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold shadow-lg ${
-                  message.sender === 'user' 
-                    ? 'bg-gradient-to-br from-blue-500 to-indigo-600 text-white' 
-                    : 'bg-gradient-to-br from-emerald-500 to-teal-600 text-white'
-                }`}>
-                  {message.sender === 'user' ? 'U' : '👤'}
-                </div>
-                
-                {/* Message */}
-                <div className={`flex flex-col space-y-2 ${message.sender === 'user' ? 'items-end' : 'items-start'}`}>
-                  <div className={`px-6 py-4 rounded-3xl shadow-lg max-w-2xl ${
-                    message.sender === 'user' 
-                      ? 'bg-gradient-to-br from-blue-500 to-indigo-600 text-white rounded-br-lg' 
-                      : 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white border border-slate-200 dark:border-slate-700 rounded-bl-lg'
-                  }`}>
-                    <p className="text-sm whitespace-pre-wrap leading-relaxed">{message.content}</p>
-                  </div>
-                  <div className={`flex items-center space-x-2 ${message.sender === 'user' ? 'flex-row-reverse space-x-reverse' : ''}`}>
-                    <span className="text-xs text-slate-500 dark:text-slate-400 px-2">
-                      {message.timestamp instanceof Date 
-                        ? message.timestamp.toLocaleTimeString('en-US', { 
-                            hour: '2-digit', 
-                            minute: '2-digit',
-                            hour12: true 
-                          })
-                        : new Date(message.timestamp).toLocaleTimeString('en-US', { 
-                            hour: '2-digit', 
-                            minute: '2-digit',
-                            hour12: true 
-                          })
-                      }
-                    </span>
-                    {message.sender === 'ai' && (
-                      <div className="flex items-center space-x-1">
-                        <div className="w-1 h-1 bg-emerald-400 rounded-full"></div>
-                        <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">Your Coach</span>
-                      </div>
-                    )}
-                    {message.sender === 'user' && message.needsResend && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleResendMessage(message)}
-                        disabled={loading || message.isResending}
-                        className="text-xs px-2 py-1 h-6 bg-red-50 hover:bg-red-100 border-red-200 text-red-600 dark:bg-red-900/20 dark:hover:bg-red-900/30 dark:border-red-800 dark:text-red-400"
-                      >
-                        {message.isResending ? (
-                          <>
-                            <div className="w-3 h-3 border border-red-400 border-t-transparent rounded-full animate-spin mr-1"></div>
-                            Resending...
-                          </>
-                        ) : (
-                          <>
-                            <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                            </svg>
-                            Resend
-                            {message.resendCount && message.resendCount > 0 && (
-                              <span className="ml-1 text-xs">({message.resendCount})</span>
-                            )}
-                          </>
-                        )}
-                      </Button>
-                    )}
-                    {message.sender === 'user' && canDeleteMessage(message, index) && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleDeleteMessage(message)}
-                        className="text-xs px-2 py-1 h-6 bg-gray-50 hover:bg-gray-100 border-gray-200 text-gray-600 dark:bg-gray-800/20 dark:hover:bg-gray-800/30 dark:border-gray-700 dark:text-gray-400"
-                      >
-                        <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                        </svg>
-                        Delete
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          ))
-        )}
-        {loading && (
-          <div className="flex justify-start">
-            <div className="flex items-start space-x-3 max-w-2xl">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-sm font-medium text-white">
-                👤
-              </div>
-              <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl rounded-bl-md px-4 py-3 shadow-sm">
-                <div className="flex items-center space-x-2">
-                  <div className="flex space-x-1">
-                    <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                    <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                    <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-                  </div>
-                  <span className="text-sm text-slate-600 dark:text-slate-400">Your coach is typing...</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-        <div ref={messagesEndRef} />
-          </div>
-        </div>
-      </div>
-
-      {/* Session Lock Banner */}
-      {isSessionLocked && (
-        <div className="bg-gradient-to-r from-red-50 to-pink-50 dark:from-red-900/20 dark:to-pink-900/20 border-t border-red-200 dark:border-red-700 p-4">
-          <div className="max-w-4xl mx-auto text-center">
-            <div className="flex items-center justify-center space-x-2 mb-2">
-              <Lock className="h-5 w-5 text-red-600 dark:text-red-400" />
-              <h3 className="text-lg font-semibold text-red-800 dark:text-red-200">
-                Session Secured
-              </h3>
-            </div>
-            <p className="text-sm text-red-700 dark:text-red-300 mb-2">
-              This session has been secured for your safety. Your coach has ended this session.
-            </p>
-            {lockReason && (
-              <p className="text-xs text-red-600 dark:text-red-400 mb-3">
-                Reason: {lockReason}
-              </p>
-            )}
-            <p className="text-xs text-red-600 dark:text-red-400">
-              Contact support if you need assistance: support@zenithwell.com
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Complete Introduction Button */}
-      {showCompleteIntroduction && !isSessionLocked && (
-        <div className="bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/20 border-t border-emerald-200 dark:border-emerald-700 p-4">
-          <div className="max-w-4xl mx-auto text-center">
-            <p className="text-sm text-emerald-700 dark:text-emerald-300 mb-3">
-              Ready to complete your introduction? I'll extract your goals and prepare for future sessions.
-            </p>
+    <div className="min-h-screen flex flex-col bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900">
+      <header className="bg-white/90 dark:bg-slate-900/80 backdrop-blur border-b border-white/60 dark:border-slate-800 px-6 py-4 shadow-sm">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
             <Button
-              onClick={completeIntroduction}
-              disabled={loading}
-              className="bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white px-6 py-2 rounded-full font-medium transition-all duration-200"
+              variant="ghost"
+              size="sm"
+              onClick={() => router.push('/dashboard/sessions')}
+              className="rounded-full text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
             >
-              {loading ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Completing Introduction...
-                </>
-              ) : (
-                'Complete Introduction & Set Goals'
-              )}
+              <ArrowLeft className="h-4 w-4" />
             </Button>
-          </div>
-        </div>
-      )}
-
-      {/* Input */}
-      {!isSessionLocked && (
-        <div className="bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm border-t border-slate-200 dark:border-slate-700 p-4 shadow-lg">
-          <div className="max-w-4xl mx-auto">
-            <div className="flex space-x-3">
-              <div className="flex-1 relative">
-                <textarea
-                  value={inputMessage}
-                  onChange={(e) => setInputMessage(e.target.value)}
-                  onKeyPress={handleKeyPress}
-                  placeholder="Share your thoughts, feelings, or wellness goals..."
-                  className="w-full min-h-[48px] max-h-32 px-4 py-3 pr-12 border border-slate-300 dark:border-slate-600 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent resize-none dark:bg-slate-900 dark:text-white placeholder-slate-500 dark:placeholder-slate-400 transition-all duration-200"
-                  disabled={loading || sessionEnded || initializing || !!pendingMessage}
-                  rows={1}
-                />
-                <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                  <Button
-                    onClick={() => sendMessage()}
-                    disabled={!inputMessage.trim() || loading || sessionEnded || initializing || !!pendingMessage}
-                    size="sm"
-                    className="w-8 h-8 p-0 rounded-full bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
-                  >
-                    <Send className="h-4 w-4" />
-                  </Button>
-                </div>
+            <div className="flex items-center gap-3">
+              <div className="grid h-11 w-11 place-items-center rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow">
+                <span className="text-lg">👤</span>
+              </div>
+              <div>
+                <h1 className="text-lg font-semibold text-slate-900 dark:text-white">{sessionTitle}</h1>
+                <p className="text-sm text-slate-500 dark:text-slate-400">Your Coach</p>
               </div>
             </div>
-            <div className="mt-2 text-xs text-slate-500 dark:text-slate-400 text-center">
-              Press Enter to send, Shift+Enter for new line
+          </div>
+          <div className="flex items-center gap-3">
+            {userSubscription === 'free' && timeRemaining !== null && !sessionEnded && (
+              <div className="flex items-center gap-2 rounded-full bg-amber-50 px-3 py-1.5 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                <Clock className="h-4 w-4" />
+                <span className="text-sm font-medium">{formatTime(timeRemaining)}</span>
+              </div>
+            )}
+            <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500"></span>
+              </span>
+              Online
             </div>
           </div>
         </div>
-      )}
+      </header>
+
+      <div className="flex-1 overflow-hidden px-4 py-6">
+        <div className="mx-auto grid h-full max-w-6xl gap-4 lg:grid-cols-[320px,minmax(0,1fr),320px]">
+          <div className="hidden lg:block overflow-y-auto rounded-3xl">
+            <SessionSidebar
+              sessionTitle={sessionTitle}
+              onBack={() => router.push('/dashboard/sessions')}
+              userSubscription={userSubscription}
+              timeRemaining={timeRemaining}
+              sessionEnded={sessionEnded}
+              sessionStartTime={sessionStartTime}
+              isIntroductionSession={isIntroductionSession}
+              showCompleteIntroduction={showCompleteIntroduction}
+              onCompleteIntroduction={completeIntroduction}
+              completingIntroduction={completingIntroduction}
+              quickActions={renderQuickActions()}
+              introductionCompleted={isIntroductionLock}
+              messageStats={messageStats}
+            />
+          </div>
+
+          <div className="flex flex-col overflow-hidden rounded-[32px] border border-white/60 dark:border-slate-800/70 bg-white/80 dark:bg-slate-900/70 shadow-xl">
+            <div className="lg:hidden border-b border-white/60 dark:border-slate-800/60 p-4">
+              <SessionSidebar
+                sessionTitle={sessionTitle}
+                onBack={() => router.push('/dashboard/sessions')}
+                userSubscription={userSubscription}
+                timeRemaining={timeRemaining}
+                sessionEnded={sessionEnded}
+                sessionStartTime={sessionStartTime}
+                isIntroductionSession={isIntroductionSession}
+                showCompleteIntroduction={showCompleteIntroduction}
+                onCompleteIntroduction={completeIntroduction}
+                completingIntroduction={completingIntroduction}
+              introductionCompleted={isIntroductionLock}
+                messageStats={messageStats}
+              />
+            </div>
+
+            <SessionLockBanner
+              isLocked={isSessionLocked}
+              lockReason={lockReason}
+              isIntroductionLock={isIntroductionLock}
+              onStartFirstSession={handleStartFirstSession}
+              className="border-none"
+            />
+
+            {showBreakPrompt && (
+              <div className="px-6 pt-4">
+                <BreakPrompt
+                  visible={showBreakPrompt}
+                  onAccept={handleBreakAccept}
+                  onDismiss={handleBreakDismiss}
+                />
+              </div>
+            )}
+
+            {showEmergencyResources && (
+              <div className="lg:hidden space-y-3 px-6 pt-4">
+                <EmergencyResources compact urgencyLevel="high" />
+                <Button variant="outline" size="sm" onClick={handleCloseEmergencyResources}>
+                  Close resources
+                </Button>
+              </div>
+            )}
+
+            <div className="flex-1 overflow-y-auto space-y-6 px-6 py-6 scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-700">
+              {initializing ? (
+                <div className="flex h-full flex-col items-center justify-center space-y-3 text-center">
+                  <div className="grid h-16 w-16 place-items-center rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow animate-pulse">
+                    <span className="text-2xl">🌱</span>
+                  </div>
+                  <h3 className="text-xl font-semibold text-slate-900 dark:text-white">Initializing session</h3>
+                  <p className="max-w-md text-sm text-slate-600 dark:text-slate-400">
+                    Setting up your wellness space and loading previous conversations…
+                  </p>
+                </div>
+              ) : sessionEnded && userSubscription === 'free' ? (
+                <div className="flex h-full flex-col items-center justify-center space-y-4 text-center">
+                  <div className="grid h-16 w-16 place-items-center rounded-full bg-gradient-to-br from-red-500 to-rose-600 text-white shadow">
+                    <span className="text-xl">🔒</span>
+                  </div>
+                  <h3 className="text-xl font-semibold text-slate-900 dark:text-white">Session access restricted</h3>
+                  <p className="max-w-md text-sm text-slate-600 dark:text-slate-400">
+                    Free sessions can&apos;t be resumed once finished. Start a new session anytime or upgrade to ZenithWell Pro for unlimited access.
+                  </p>
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <Button variant="outline" onClick={() => router.push('/dashboard/sessions')}>
+                      Back to sessions
+                    </Button>
+                    <Button onClick={() => router.push('/dashboard/settings')} className="bg-gradient-to-r from-yellow-500 to-orange-600 hover:from-yellow-600 hover:to-orange-700">
+                      Upgrade to Pro
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {messages.length === 0 && (
+                    <div className="mt-10 text-center text-sm text-slate-400 dark:text-slate-500">
+                      Your coach is ready whenever you are. Share what&apos;s on your mind.
+                    </div>
+                  )}
+                  {messages.map((message, index) => (
+                    <div
+                      key={message.id || `${message.sender}-${index}`}
+                      className={message.sender === 'user' ? 'flex justify-end' : 'flex justify-start'}
+                    >
+                      <MessageBubble
+                        message={message}
+                        onResend={handleResendMessage}
+                        onDelete={handleDeleteMessage}
+                        canDelete={canDeleteMessage(message, index)}
+                      />
+                    </div>
+                  ))}
+                  {loading && (
+                    <div className="flex justify-start">
+                      <div className="rounded-3xl border border-slate-200/70 bg-white/80 px-4 py-3 text-sm text-slate-600 shadow-sm dark:border-slate-700/60 dark:bg-slate-800/70 dark:text-slate-300">
+                        Your coach is typing…
+                      </div>
+                    </div>
+                  )}
+                  <div ref={messagesEndRef} />
+                </>
+              )}
+            </div>
+
+            {!isSessionLocked && (
+              <ChatInput
+                value={inputMessage}
+                onChange={setInputMessage}
+                onSend={() => sendMessage()}
+                disabled={loading || sessionEnded || initializing || !!pendingMessage}
+                placeholder="Share your thoughts, feelings, or wellness goals…"
+                onKeyDown={handleInputKeyDown}
+                quickActions={<div className="lg:hidden">{renderQuickActions()}</div>}
+              />
+            )}
+          </div>
+
+          <div className="hidden xl:block overflow-y-auto rounded-3xl">
+            <ContextPanel
+              messages={messages}
+              isLocked={isSessionLocked}
+              lockReason={lockReason}
+              showEmergencyResources={showEmergencyResources}
+              onCloseEmergencyResources={handleCloseEmergencyResources}
+            />
+          </div>
+        </div>
+      </div>
+
+      <Dialog open={showIntroductionLockedModal} onOpenChange={setShowIntroductionLockedModal}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Introduction session locked</DialogTitle>
+            <DialogDescription>
+              Your introduction is already complete. You can start a fresh wellness session or review your introduction history.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setShowIntroductionLockedModal(false)}>
+              View history
+            </Button>
+            <Button onClick={handleStartFirstSession}>
+              Start new session
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

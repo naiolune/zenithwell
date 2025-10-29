@@ -1,17 +1,23 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Send, ArrowLeft, Loader2, Users, Clock, AlertCircle, CheckCircle } from 'lucide-react';
+import { ArrowLeft, Users, Clock, AlertCircle, CheckCircle } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { getUserSubscription, canAccessProFeature } from '@/lib/subscription';
 import { ChatMessage } from '@/types';
 import { ParticipantList } from '@/components/ParticipantStatus';
 import { ShareLinkDialog } from '@/components/ShareLinkDialog';
 import { GROUP_SESSION_CONFIG } from '@/lib/group-session-config';
+import SessionSidebar from '@/components/chat/SessionSidebar';
+import MessageBubble from '@/components/chat/MessageBubble';
+import ChatInput from '@/components/chat/ChatInput';
+import QuickActions from '@/components/chat/QuickActions';
+import BreakPrompt from '@/components/chat/BreakPrompt';
+import EmergencyResources from '@/components/EmergencyResources';
 
 interface SessionData {
   session_id: string;
@@ -19,6 +25,7 @@ interface SessionData {
   group_category: string;
   session_status: string;
   user_id: string;
+  created_at?: string;
 }
 
 interface Participant {
@@ -49,9 +56,20 @@ export default function GroupSessionPage() {
   const [sessionWaiting, setSessionWaiting] = useState(false);
   const [messageTimeouts, setMessageTimeouts] = useState<Map<string, NodeJS.Timeout>>(new Map());
   const [pendingMessage, setPendingMessage] = useState<ChatMessage | null>(null);
+  const [showBreakPrompt, setShowBreakPrompt] = useState(false);
+  const [showEmergencyResources, setShowEmergencyResources] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const supabase = createClient();
+
+  const messageStats = useMemo(() => {
+    const coachCount = messages.filter(msg => msg.sender === 'ai').length;
+    return {
+      total: messages.length,
+      coachCount,
+      userCount: messages.length - coachCount,
+    };
+  }, [messages]);
 
   useEffect(() => {
     loadUserData();
@@ -373,10 +391,16 @@ export default function GroupSessionPage() {
     setupMessageTimeout(userMessage.id);
 
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error('Not authenticated');
+      }
+
       const response = await fetch('/api/ai/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
         },
         body: JSON.stringify({
           sessionId,
@@ -474,7 +498,7 @@ export default function GroupSessionPage() {
     }
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
+  const handleInputKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       sendMessage();
@@ -488,36 +512,66 @@ export default function GroupSessionPage() {
            !sessionWaiting;
   };
 
+  const handleSuggestBreak = () => {
+    if (canSendMessage()) {
+      setShowBreakPrompt(true);
+    }
+  };
+
+  const handleEmergencyResources = () => {
+    setShowEmergencyResources(true);
+  };
+
+  const handleCloseEmergencyResources = () => {
+    setShowEmergencyResources(false);
+  };
+
+  const handleBreakAccept = () => {
+    setShowBreakPrompt(false);
+    alert('Inhale for 4 seconds, hold for 4, exhale for 6. Repeat for two minutes.');
+  };
+
+  const handleBreakDismiss = () => {
+    setShowBreakPrompt(false);
+  };
+
+  const renderQuickActions = () => (
+    <QuickActions
+      onSuggestBreak={handleSuggestBreak}
+      onOpenEmergencyResources={handleEmergencyResources}
+      onAddCoachNote={() => alert('Group session notes coming soon.')}
+      onScheduleCheckIn={() => alert('Group check-in scheduling coming soon.')}
+      onAddMemoryTag={() => alert('Group memory tagging coming soon.')}
+    />
+  );
+
   const readyParticipants = participants.filter(p => p.is_ready).length;
   const allParticipantsReady = participants.length > 0 && readyParticipants === participants.length;
 
   return (
-    <div className="h-screen flex">
-      {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col">
-        {/* Header */}
-        <div className="bg-white dark:bg-gray-800 border-b dark:border-gray-700 p-4 flex items-center justify-between">
-          <div className="flex items-center space-x-4">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => router.push('/dashboard/group')}
-            >
+    <div className="min-h-screen flex flex-col bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
+      <header className="bg-white/95 dark:bg-slate-900/85 backdrop-blur border-b border-white/60 dark:border-slate-800 px-6 py-4 shadow-sm">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <Button variant="ghost" size="sm" onClick={() => router.push('/dashboard/group')} className="rounded-full">
               <ArrowLeft className="h-4 w-4" />
             </Button>
-            <div>
-              <h1 className="text-lg font-semibold dark:text-white">{sessionData?.title}</h1>
-              <div className="flex items-center space-x-2">
+            <div className="space-y-1">
+              <h1 className="text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+                <Users className="h-5 w-5 text-emerald-500" />
+                {sessionData?.title || 'Group Session'}
+              </h1>
+              <div className="flex flex-wrap items-center gap-2">
                 <Badge variant="outline" className="capitalize">
-                  {sessionData?.group_category}
+                  {sessionData?.group_category || 'general'}
                 </Badge>
-                <Badge variant={sessionData?.session_status === 'active' ? 'default' : 'secondary'}>
-                  {sessionData?.session_status}
+                <Badge variant={sessionData?.session_status === 'active' ? 'default' : 'secondary'} className="capitalize">
+                  {sessionData?.session_status || 'waiting'}
                 </Badge>
               </div>
             </div>
           </div>
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center gap-3">
             {isOwner && (
               <ShareLinkDialog
                 sessionId={sessionId}
@@ -527,233 +581,194 @@ export default function GroupSessionPage() {
                 onRefresh={fetchParticipants}
               />
             )}
+            <div className="text-sm text-slate-500 dark:text-slate-400">
+              {participants.filter(p => p.is_online).length}/{participants.length} online
+            </div>
           </div>
         </div>
+      </header>
 
-        {/* Waiting Room Banner */}
-        {sessionData?.session_status === 'waiting' && (
-          <div className="bg-yellow-50 dark:bg-yellow-900/20 border-b border-yellow-200 dark:border-yellow-800 p-4">
-            <div className="flex items-center space-x-2">
-              <Clock className="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
-              <div>
-                <p className="font-medium text-yellow-800 dark:text-yellow-200">
-                  Waiting Room
-                </p>
-                <p className="text-sm text-yellow-700 dark:text-yellow-300">
-                  {allParticipantsReady 
-                    ? 'All participants are ready. Session can start!'
-                    : `${readyParticipants}/${participants.length} participants ready`
-                  }
-                </p>
-              </div>
-              {isOwner && allParticipantsReady && (
-                <Button onClick={startSession} size="sm">
-                  Start Session
-                </Button>
-              )}
-            </div>
+      <div className="flex-1 overflow-hidden px-4 py-6">
+        <div className="mx-auto grid h-full max-w-6xl gap-4 lg:grid-cols-[320px,minmax(0,1fr),320px]">
+          <div className="hidden lg:block overflow-y-auto rounded-3xl">
+            <SessionSidebar
+              sessionTitle={sessionData?.title || 'Group Session'}
+              onBack={() => router.push('/dashboard/group')}
+              userSubscription={isPro ? 'pro' : 'free'}
+              timeRemaining={null}
+              sessionEnded={sessionData?.session_status === 'ended'}
+              sessionStartTime={sessionData?.created_at ? new Date(sessionData.created_at) : null}
+              isIntroductionSession={false}
+              showCompleteIntroduction={false}
+              completingIntroduction={false}
+              messageStats={messageStats}
+              quickActions={renderQuickActions()}
+            />
           </div>
-        )}
 
-        {/* Presence Warning */}
-        {waitingForParticipants && (
-          <div className="bg-red-50 dark:bg-red-900/20 border-b border-red-200 dark:border-red-800 p-4">
-            <div className="flex items-center space-x-2">
-              <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-400" />
-              <p className="text-red-800 dark:text-red-200">
-                All participants must be online to continue the conversation.
-              </p>
+          <div className="flex flex-col overflow-hidden rounded-[32px] border border-white/60 dark:border-slate-800/70 bg-white/80 dark:bg-slate-900/70 shadow-xl">
+            <div className="lg:hidden border-b border-white/60 dark:border-slate-800/60 p-4">
+              <SessionSidebar
+                sessionTitle={sessionData?.title || 'Group Session'}
+                onBack={() => router.push('/dashboard/group')}
+                userSubscription={isPro ? 'pro' : 'free'}
+                timeRemaining={null}
+                sessionEnded={sessionData?.session_status === 'ended'}
+                sessionStartTime={sessionData?.created_at ? new Date(sessionData.created_at) : null}
+                isIntroductionSession={false}
+                showCompleteIntroduction={false}
+                completingIntroduction={false}
+                messageStats={messageStats}
+              />
             </div>
-          </div>
-        )}
 
-        {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {messages.length === 0 ? (
-            <div className="text-center text-gray-500 dark:text-gray-400 mt-8">
-              <p>Start a group conversation with your AI wellness coach</p>
-            </div>
-          ) : (
-            messages.map((message, index) => (
-              <div
-                key={message.id}
-                className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}
-              >
-                <div className="flex flex-col space-y-2">
-                  <Card className={`max-w-xs lg:max-w-md ${
-                    message.sender === 'user' 
-                      ? 'bg-blue-600 text-white' 
-                      : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-200'
-                  }`}>
-                    <CardContent className="p-3">
-                      <p className="text-sm whitespace-pre-wrap">{message.content}</p>
-                    </CardContent>
-                  </Card>
-                  {message.sender === 'user' && message.needsResend && (
-                    <div className="flex justify-end space-x-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleResendMessage(message)}
-                        disabled={loading || message.isResending}
-                        className="text-xs px-2 py-1 h-6 bg-red-50 hover:bg-red-100 border-red-200 text-red-600 dark:bg-red-900/20 dark:hover:bg-red-900/30 dark:border-red-800 dark:text-red-400"
-                      >
-                        {message.isResending ? (
-                          <>
-                            <div className="w-3 h-3 border border-red-400 border-t-transparent rounded-full animate-spin mr-1"></div>
-                            Resending...
-                          </>
-                        ) : (
-                          <>
-                            <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                            </svg>
-                            Resend
-                            {message.resendCount && message.resendCount > 0 && (
-                              <span className="ml-1 text-xs">({message.resendCount})</span>
-                            )}
-                          </>
-                        )}
-                      </Button>
-                      {canDeleteMessage(message, index) && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleDeleteMessage(message)}
-                          className="text-xs px-2 py-1 h-6 bg-gray-50 hover:bg-gray-100 border-gray-200 text-gray-600 dark:bg-gray-800/20 dark:hover:bg-gray-800/30 dark:border-gray-700 dark:text-gray-400"
-                        >
-                          <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                          </svg>
-                          Delete
-                        </Button>
-                      )}
-                    </div>
-                  )}
-                  {message.sender === 'user' && !message.needsResend && canDeleteMessage(message, index) && (
-                    <div className="flex justify-end">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleDeleteMessage(message)}
-                        className="text-xs px-2 py-1 h-6 bg-gray-50 hover:bg-gray-100 border-gray-200 text-gray-600 dark:bg-gray-800/20 dark:hover:bg-gray-800/30 dark:border-gray-700 dark:text-gray-400"
-                      >
-                        <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                        </svg>
-                        Delete
-                      </Button>
-                    </div>
+            {sessionData?.session_status === 'waiting' && (
+              <div className="border-b border-amber-200/60 bg-amber-50/70 px-6 py-4 dark:border-amber-800/40 dark:bg-amber-900/20">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-center gap-2 text-sm text-amber-700 dark:text-amber-200">
+                    <Clock className="h-4 w-4" />
+                    Waiting room · {readyParticipants}/{participants.length} ready
+                  </div>
+                  {isOwner && allParticipantsReady && (
+                    <Button size="sm" onClick={startSession}>
+                      Start session
+                    </Button>
                   )}
                 </div>
               </div>
-            ))
-          )}
-          {loading && (
-            <div className="flex justify-start">
-              <Card className="bg-gray-100 dark:bg-gray-800">
-                <CardContent className="p-3 flex items-center space-x-2">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  <span className="text-sm dark:text-gray-300">AI is thinking...</span>
+            )}
+
+            {waitingForParticipants && (
+              <div className="border-b border-red-200/60 bg-red-50/80 px-6 py-3 text-sm text-red-700 dark:border-red-800/40 dark:bg-red-900/20 dark:text-red-200">
+                <AlertCircle className="mr-2 inline h-4 w-4" />
+                All participants must be online to keep the conversation going.
+              </div>
+            )}
+
+            {showBreakPrompt && (
+              <div className="px-6 pt-4">
+                <BreakPrompt visible={showBreakPrompt} onAccept={handleBreakAccept} onDismiss={handleBreakDismiss} />
+              </div>
+            )}
+
+            {showEmergencyResources && (
+              <div className="lg:hidden space-y-3 px-6 pt-4">
+                <EmergencyResources compact urgencyLevel="medium" />
+                <Button variant="outline" size="sm" onClick={handleCloseEmergencyResources}>
+                  Close resources
+                </Button>
+              </div>
+            )}
+
+            <div className="flex-1 overflow-y-auto space-y-6 px-6 py-6 scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-700">
+              {messages.length === 0 ? (
+                <div className="mt-10 text-center text-sm text-slate-400 dark:text-slate-500">
+                  When everyone&apos;s ready, share how the group is feeling to begin.
+                </div>
+              ) : (
+                messages.map((message, index) => (
+                  <div key={message.id || `${message.sender}-${index}`} className={message.sender === 'user' ? 'flex justify-end' : 'flex justify-start'}>
+                    <MessageBubble
+                      message={message}
+                      onResend={handleResendMessage}
+                      onDelete={handleDeleteMessage}
+                      canDelete={message.sender === 'user' && canDeleteMessage(message, index)}
+                    />
+                  </div>
+                ))
+              )}
+
+              {loading && (
+                <div className="flex justify-start text-sm text-slate-500 dark:text-slate-300">
+                  <div className="rounded-3xl border border-slate-200/60 bg-white/80 px-4 py-3 shadow-sm dark:border-slate-700/50 dark:bg-slate-800/70">
+                    Your coach is typing…
+                  </div>
+                </div>
+              )}
+
+              <div ref={messagesEndRef} />
+            </div>
+
+            <ChatInput
+              value={inputMessage}
+              onChange={setInputMessage}
+              onSend={() => sendMessage()}
+              disabled={loading || !canSendMessage() || !!pendingMessage}
+              placeholder={
+                !canSendMessage()
+                  ? 'Waiting for all participants to be online…'
+                  : 'Share with the group…'
+              }
+              onKeyDown={handleInputKeyDown}
+              quickActions={<div className="lg:hidden">{renderQuickActions()}</div>}
+            />
+          </div>
+
+          <div className="hidden xl:block overflow-y-auto rounded-3xl border border-white/60 bg-white/80 p-4 dark:border-slate-800/70 dark:bg-slate-900/70">
+            <div className="space-y-4">
+              <ParticipantList
+                participants={participants.map(p => ({
+                  user_id: p.user_id,
+                  user_name: p.full_name,
+                  user_email: p.email,
+                  is_ready: p.is_ready,
+                  is_online: p.is_online,
+                  is_away: p.is_away,
+                  last_heartbeat: p.last_heartbeat,
+                  presence_status: p.presence_status as any,
+                }))}
+                allOnline={allOnline}
+                totalParticipants={participants.length}
+                onlineParticipants={participants.filter(p => p.is_online).length}
+              />
+
+              <Card className="border-none bg-white/70 dark:bg-slate-900/60">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm">Your readiness</CardTitle>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <Button
+                    onClick={markAsReady}
+                    variant={isReady ? 'default' : 'outline'}
+                    size="sm"
+                    className="w-full"
+                  >
+                    {isReady ? (
+                      <>
+                        <CheckCircle className="mr-2 h-4 w-4" /> Ready
+                      </>
+                    ) : (
+                      <>
+                        <Clock className="mr-2 h-4 w-4" /> Mark as ready
+                      </>
+                    )}
+                  </Button>
                 </CardContent>
               </Card>
+
+              <Card className="border-none bg-white/70 dark:bg-slate-900/60">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm">Session insights</CardTitle>
+                </CardHeader>
+                <CardContent className="grid gap-2 text-sm text-slate-600 dark:text-slate-300">
+                  <div className="flex justify-between">
+                    <span>Total messages</span>
+                    <span className="font-medium">{messageStats.total}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Coach responses</span>
+                    <span className="font-medium">{messageStats.coachCount}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Participant messages</span>
+                    <span className="font-medium">{messageStats.userCount}</span>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <div className="lg:block hidden">{renderQuickActions()}</div>
             </div>
-          )}
-          <div ref={messagesEndRef} />
-        </div>
-
-        {/* Input */}
-        <div className="bg-white dark:bg-gray-800 border-t dark:border-gray-700 p-4">
-          <div className="flex space-x-2">
-            <textarea
-              value={inputMessage}
-              onChange={(e) => setInputMessage(e.target.value)}
-              onKeyPress={handleKeyPress}
-              placeholder={
-                !canSendMessage() 
-                  ? "Waiting for all participants to be online..." 
-                  : "Type your message..."
-              }
-              className="flex-1 min-h-[40px] max-h-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 resize-none dark:bg-gray-900 dark:text-white"
-              disabled={loading || !canSendMessage() || !!pendingMessage}
-            />
-            <Button
-              onClick={() => sendMessage()}
-              disabled={!inputMessage.trim() || loading || !canSendMessage() || !!pendingMessage}
-              className="px-4"
-            >
-              <Send className="h-4 w-4" />
-            </Button>
           </div>
-        </div>
-      </div>
-
-      {/* Participants Sidebar */}
-      <div className="w-80 bg-gray-50 dark:bg-gray-800 border-l dark:border-gray-700 p-4">
-        <div className="space-y-4">
-          <ParticipantList
-            participants={participants.map(p => ({
-              user_id: p.user_id,
-              user_name: p.full_name,
-              user_email: p.email,
-              is_ready: p.is_ready,
-              is_online: p.is_online,
-              is_away: p.is_away,
-              last_heartbeat: p.last_heartbeat,
-              presence_status: p.presence_status as any
-            }))}
-            allOnline={allOnline}
-            totalParticipants={participants.length}
-            onlineParticipants={participants.filter(p => p.is_online).length}
-          />
-
-          {/* Ready Status */}
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Your Status</CardTitle>
-            </CardHeader>
-            <CardContent className="pt-0">
-              <Button
-                onClick={markAsReady}
-                variant={isReady ? "default" : "outline"}
-                size="sm"
-                className="w-full"
-              >
-                {isReady ? (
-                  <>
-                    <CheckCircle className="h-4 w-4 mr-2" />
-                    Ready
-                  </>
-                ) : (
-                  <>
-                    <Clock className="h-4 w-4 mr-2" />
-                    Mark as Ready
-                  </>
-                )}
-              </Button>
-            </CardContent>
-          </Card>
-
-          {/* Session Info */}
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Session Info</CardTitle>
-            </CardHeader>
-            <CardContent className="pt-0 space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-gray-600">Type:</span>
-                <span className="capitalize">{sessionData?.group_category}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600">Status:</span>
-                <span className="capitalize">{sessionData?.session_status}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600">Participants:</span>
-                <span>{participants.length}/{GROUP_SESSION_CONFIG.MAX_PARTICIPANTS_PER_SESSION}</span>
-              </div>
-            </CardContent>
-          </Card>
         </div>
       </div>
     </div>
