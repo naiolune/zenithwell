@@ -1,5 +1,5 @@
 -- Check current constraint
-SELECT conname, consrc 
+SELECT conname, pg_get_constraintdef(oid) as constraint_definition
 FROM pg_constraint 
 WHERE conrelid = 'public.therapy_sessions'::regclass 
 AND conname LIKE '%session_type%';
