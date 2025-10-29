@@ -2,11 +2,11 @@ module.exports = {
   apps: [
     {
       name: 'zenithwell',
-      script: 'npm',
+      script: './node_modules/next/dist/bin/next',
       args: 'start',
       cwd: '/home/kitsune/zenithwell',
-      instances: 1, // Use single instance
-      exec_mode: 'cluster',
+      instances: 1,
+      exec_mode: 'fork', // Use fork mode for better log capture
       env: {
         NODE_ENV: 'production',
         PORT: 3001
@@ -15,9 +15,13 @@ module.exports = {
         NODE_ENV: 'production',
         PORT: 3001
       },
-      // Logging - Remove custom log paths to use PM2 defaults
+      // Logging configuration - all logs go to PM2 log files, not console
       log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
       merge_logs: true,
+      output: '/home/kitsune/.pm2/logs/zenithwell-out.log',
+      error: '/home/kitsune/.pm2/logs/zenithwell-error.log',
+      disable_logs: false,
+      autorestart: true,
       
       // Process management
       max_memory_restart: '1G',
@@ -30,7 +34,6 @@ module.exports = {
       
       // Advanced features
       kill_timeout: 5000,
-      wait_ready: true,
       listen_timeout: 10000,
       
       // Auto restart on file changes (development only)
