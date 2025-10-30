@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { createClient as createServiceClient } from '@supabase/supabase-js';
 import { withAPISecurity, SecurityContext } from '@/middleware/api-security';
 import { GROUP_SESSION_CONFIG, getInviteExpirationDate } from '@/lib/group-session-config';
 
@@ -184,7 +185,13 @@ async function handleValidateInvite(request: NextRequest, context: SecurityConte
     }
 
     // Then get the therapy session details separately
-    const { data: therapySession, error: sessionError } = await supabase
+    // Use service role client to bypass RLS for unauthenticated invite validation
+    const serviceClient = createServiceClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+    
+    const { data: therapySession, error: sessionError } = await serviceClient
       .from('therapy_sessions')
       .select('session_id, title, group_category, session_status')
       .eq('session_id', invite.session_id)
