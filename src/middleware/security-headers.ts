@@ -12,7 +12,7 @@ export function addSecurityHeaders(response: NextResponse): NextResponse {
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
     "font-src 'self' https://fonts.gstatic.com; " +
     "img-src 'self' data: https:; " +
-    "connect-src 'self' https://api.stripe.com https://*.supabase.co; " +
+    "connect-src 'self' https://api.stripe.com https://*.supabase.co wss://*.supabase.co; " +
     "frame-src 'self' https://js.stripe.com; " +
     "object-src 'none'; " +
     "base-uri 'self'; " +
