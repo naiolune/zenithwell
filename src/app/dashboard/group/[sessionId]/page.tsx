@@ -201,74 +201,27 @@ export default function GroupSessionPage() {
 
   const fetchParticipants = async () => {
     try {
-      // Prefer RPC if available
-      const { data, error } = await supabase
-        .rpc('get_session_participants', { session_uuid: sessionId });
-
-      if (!error && data && Array.isArray(data.participants)) {
-        setParticipants((data.participants || []).map((p: any) => ({
-          user_id: p.user_id,
-          email: p.email || '',
-          full_name: p.full_name || p.user_name || 'Member',
-          is_ready: !!p.is_ready,
-          is_online: !!p.is_online,
-          is_away: !!p.is_away,
-          last_heartbeat: p.last_heartbeat || null,
-          presence_status: p.presence_status || 'unknown',
-        })));
-        return;
-      }
-
-      // Fallback: load from session_participants + users
+      // Load from session_participants only (no RPC, no users join) to avoid 404/400
       const { data: spRows, error: spErr } = await supabase
         .from('session_participants')
         .select('user_id, is_ready')
         .eq('session_id', sessionId);
       if (spErr) {
-        console.error('Error loading participants fallback:', spErr);
+        console.error('Error loading participants:', spErr);
         return;
       }
 
-      const ids = (spRows || []).map(r => r.user_id);
-      if (ids.length === 0) {
-        setParticipants([]);
-        return;
-      }
-
-      const { data: userRows, error: uErr } = await supabase
-        .from('users')
-        .select('user_id, email, full_name')
-        .in('user_id', ids);
-      if (uErr) {
-        console.error('Error loading users for participants:', uErr);
-        setParticipants((spRows || []).map(r => ({
-          user_id: r.user_id,
-          email: '',
-          full_name: 'Member',
-          is_ready: !!(r as any).is_ready,
-          is_online: false,
-          is_away: false,
-          last_heartbeat: '' as any,
-          presence_status: 'unknown',
-        })));
-        return;
-      }
-
-      const userMap = new Map(userRows.map(u => [u.user_id, u]));
-      const combined: Participant[] = (spRows || []).map(r => {
-        const u = userMap.get(r.user_id);
-        return {
-          user_id: r.user_id,
-          email: u?.email || '',
-          full_name: u?.full_name || 'Member',
-          is_ready: (r as any).is_ready || false,
-          is_online: r.user_id === currentUserId ? true : false,
-          is_away: false,
-          last_heartbeat: '' as any,
-          presence_status: r.user_id === currentUserId ? 'online' : 'unknown',
-        };
-      });
-      setParticipants(combined);
+      const list: Participant[] = (spRows || []).map(r => ({
+        user_id: r.user_id,
+        email: '',
+        full_name: r.user_id === currentUserId ? 'You' : 'Member',
+        is_ready: (r as any).is_ready || false,
+        is_online: r.user_id === currentUserId ? true : false,
+        is_away: false,
+        last_heartbeat: '' as any,
+        presence_status: r.user_id === currentUserId ? 'online' : 'unknown',
+      }));
+      setParticipants(list);
     } catch (e) {
       console.error('fetchParticipants error:', e);
     }
