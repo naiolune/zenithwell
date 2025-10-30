@@ -59,6 +59,7 @@ export default function GroupSessionPage() {
   const [showBreakPrompt, setShowBreakPrompt] = useState(false);
   const [showEmergencyResources, setShowEmergencyResources] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const supabase = createClient();
@@ -76,6 +77,8 @@ export default function GroupSessionPage() {
     loadUserData();
     fetchSessionData();
     ensureParticipantMembership();
+    // Mark presence immediately on entry
+    markOnline(true);
     fetchParticipants();
     startHeartbeat();
     setupRealtimeSubscription();
@@ -108,6 +111,7 @@ export default function GroupSessionPage() {
       router.push('/login');
       return;
     }
+    setCurrentUserId(user.id);
 
     // Check if user is the owner of this session and guard routing
     const { data: session } = await supabase
@@ -155,6 +159,28 @@ export default function GroupSessionPage() {
       }
     } catch (e) {
       console.error('ensureParticipantMembership error:', e);
+    }
+  };
+
+  // Mark user as online (optionally optimistic)
+  const markOnline = async (optimistic = false) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      if (optimistic) {
+        setParticipants(prev => prev.map(p => p.user_id === user.id ? { ...p, is_online: true } : p));
+      }
+
+      await supabase.rpc('update_presence', {
+        session_uuid: sessionId,
+        is_online: true,
+        is_away: false
+      });
+      // Refresh participants after presence update
+      fetchParticipants();
+    } catch (e) {
+      console.error('markOnline error:', e);
     }
   };
 
@@ -236,10 +262,10 @@ export default function GroupSessionPage() {
           email: u?.email || '',
           full_name: u?.full_name || 'Member',
           is_ready: (r as any).is_ready || false,
-          is_online: false,
+          is_online: r.user_id === currentUserId ? true : false,
           is_away: false,
           last_heartbeat: '' as any,
-          presence_status: 'unknown',
+          presence_status: r.user_id === currentUserId ? 'online' : 'unknown',
         };
       });
       setParticipants(combined);
@@ -252,11 +278,16 @@ export default function GroupSessionPage() {
     heartbeatIntervalRef.current = setInterval(async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        await supabase.rpc('update_presence', {
-          session_uuid: sessionId,
-          is_online: true,
-          is_away: false
-        });
+        try {
+          await supabase.rpc('update_presence', {
+            session_uuid: sessionId,
+            is_online: true,
+            is_away: false
+          });
+          fetchParticipants();
+        } catch (e) {
+          console.error('heartbeat presence error:', e);
+        }
       }
     }, 30000); // Every 30 seconds
   };
