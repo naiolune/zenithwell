@@ -98,11 +98,16 @@ async function handleGetParticipants(request: NextRequest) {
         const { data: authUser, error: authError } = await serviceClient.auth.admin.getUserById(userId);
         if (!authError && authUser?.user) {
           const existingUserData = userMap.get(userId) || { email: authUser.user.email || '' };
-          // Check user_metadata for full_name or name
-          const fullName = authUser.user.user_metadata?.full_name || 
-                          authUser.user.user_metadata?.name ||
-                          authUser.user.user_metadata?.display_name ||
-                          null;
+          const meta = authUser.user.user_metadata || {};
+          
+          // Prefer first_name + last_name, fallback to full_name, then name, then display_name
+          let fullName = null;
+          if (meta.first_name || meta.last_name) {
+            fullName = `${meta.first_name || ''} ${meta.last_name || ''}`.trim();
+          } else {
+            fullName = meta.full_name || meta.name || meta.display_name || null;
+          }
+          
           userMap.set(userId, {
             ...existingUserData,
             email: existingUserData.email || authUser.user.email || '',

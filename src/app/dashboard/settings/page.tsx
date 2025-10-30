@@ -8,12 +8,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Crown, CheckCircle, Download, Trash2, AlertTriangle } from 'lucide-react';
+import { Crown, CheckCircle, Download, Trash2, AlertTriangle, User } from 'lucide-react';
 import { getUserSubscription, canAccessProFeature } from '@/lib/subscription';
-import { User } from '@/types';
+import { User as UserType } from '@/types';
+import { createClient } from '@/lib/supabase/client';
 
 export default function SettingsPage() {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<UserType | null>(null);
   const [isPro, setIsPro] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -22,6 +23,12 @@ export default function SettingsPage() {
   const [confirmation, setConfirmation] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [isUpdatingName, setIsUpdatingName] = useState(false);
+  const [nameUpdateSuccess, setNameUpdateSuccess] = useState(false);
+  const [showNamePrompt, setShowNamePrompt] = useState(false);
+  const supabase = createClient();
 
   useEffect(() => {
     loadUserData();
@@ -32,7 +39,56 @@ export default function SettingsPage() {
     setUser(user);
     setIsPro(isPro);
     setIsAdmin(isAdmin);
+    
+    // Load user metadata for name
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    if (authUser?.user_metadata) {
+      const meta = authUser.user_metadata;
+      const currentFirstName = meta.first_name || '';
+      const currentLastName = meta.last_name || '';
+      setFirstName(currentFirstName);
+      setLastName(currentLastName);
+      
+      // Show prompt if name is missing
+      if (!currentFirstName && !currentLastName && !meta.full_name) {
+        setShowNamePrompt(true);
+      }
+    }
+    
     setLoading(false);
+  };
+
+  const handleUpdateName = async () => {
+    if (!firstName.trim() || !lastName.trim()) {
+      alert('Please enter both first and last name');
+      return;
+    }
+
+    setIsUpdatingName(true);
+    setNameUpdateSuccess(false);
+
+    try {
+      const { error } = await supabase.auth.updateUser({
+        data: {
+          first_name: firstName.trim(),
+          last_name: lastName.trim(),
+          full_name: `${firstName.trim()} ${lastName.trim()}`.trim()
+        }
+      });
+
+      if (error) {
+        alert(`Failed to update name: ${error.message}`);
+      } else {
+        setNameUpdateSuccess(true);
+        setShowNamePrompt(false);
+        setTimeout(() => setNameUpdateSuccess(false), 3000);
+      }
+    } catch (error) {
+      console.error('Error updating name:', error);
+      alert('Failed to update name. Please try again.');
+    } finally {
+      setIsUpdatingName(false);
+    }
   };
 
   const handleExportData = async () => {
@@ -132,6 +188,16 @@ export default function SettingsPage() {
           Manage your account and subscription
         </p>
       </div>
+
+      {/* Name Prompt Banner */}
+      {showNamePrompt && (
+        <Alert className="border-amber-200 bg-amber-50 dark:bg-amber-900/20">
+          <User className="h-4 w-4 text-amber-600" />
+          <AlertDescription className="text-amber-800 dark:text-amber-200">
+            <strong>Complete your profile:</strong> Please add your first and last name so others can identify you in group sessions.
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* Subscription Status */}
       <Card>
@@ -235,6 +301,46 @@ export default function SettingsPage() {
               </label>
               <div className="text-sm text-gray-900 dark:text-white">{user?.email}</div>
             </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="settings-firstName" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  First Name
+                </Label>
+                <Input
+                  id="settings-firstName"
+                  type="text"
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                  placeholder="First name"
+                  className="max-w-xs"
+                />
+              </div>
+              <div>
+                <Label htmlFor="settings-lastName" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Last Name
+                </Label>
+                <Input
+                  id="settings-lastName"
+                  type="text"
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
+                  placeholder="Last name"
+                  className="max-w-xs"
+                />
+              </div>
+            </div>
+            {nameUpdateSuccess && (
+              <div className="text-sm text-green-600 dark:text-green-400">
+                Name updated successfully!
+              </div>
+            )}
+            <Button 
+              onClick={handleUpdateName} 
+              disabled={isUpdatingName || (!firstName.trim() || !lastName.trim())}
+              size="sm"
+            >
+              {isUpdatingName ? 'Updating...' : 'Update Name'}
+            </Button>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Member Since
