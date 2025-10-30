@@ -65,15 +65,37 @@ async function handleGetParticipants(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to fetch participants' }, { status: 500 });
     }
 
+    if (!participants || participants.length === 0) {
+      return NextResponse.json({ participants: [] });
+    }
+
+    // Get user data for all participants
+    const userIds = participants.map(p => p.user_id);
+    const { data: userData, error: userError } = await serviceClient
+      .from('users')
+      .select('user_id, email, full_name')
+      .in('user_id', userIds);
+
+    if (userError) {
+      console.error('Error fetching user data:', userError);
+    }
+
+    // Create a map of user_id to user data for quick lookup
+    const userMap = new Map();
+    userData?.forEach(u => {
+      userMap.set(u.user_id, u);
+    });
+
     // Get presence data if available (using participant_presence table)
     const { data: presenceData } = await serviceClient
       .from('participant_presence')
       .select('user_id, is_online, last_heartbeat')
       .eq('session_id', sessionId)
-      .in('user_id', participants?.map(p => p.user_id) || []);
+      .in('user_id', userIds);
 
     // Format participants for the frontend
-    const formattedParticipants = participants?.map(p => {
+    const formattedParticipants = participants.map(p => {
+      const userInfo = userMap.get(p.user_id);
       const presence = presenceData?.find(pr => pr.user_id === p.user_id);
       const lastHeartbeat = presence?.last_heartbeat ? new Date(presence.last_heartbeat) : null;
       const now = new Date();
@@ -81,17 +103,30 @@ async function handleGetParticipants(request: NextRequest) {
       const isOnline = presence?.is_online || false;
       const isAway = !isOnline && diffMs < 60000; // Away if offline but heartbeat was recent
       
+      // Extract first name from full_name if available, otherwise use email or fallback
+      let displayName = 'Member';
+      if (p.user_id === user.id) {
+        displayName = 'You';
+      } else if (userInfo?.full_name) {
+        // Extract first name (part before space) or use full name if no space
+        const firstName = userInfo.full_name.split(' ')[0];
+        displayName = firstName || userInfo.full_name;
+      } else if (userInfo?.email) {
+        // Use email username (part before @) as fallback
+        displayName = userInfo.email.split('@')[0];
+      }
+      
       return {
         user_id: p.user_id,
-        email: '', // Will be populated by frontend if needed
-        full_name: p.user_id === user.id ? 'You' : 'Member',
+        email: userInfo?.email || '',
+        full_name: displayName,
         is_ready: p.is_ready || false,
         is_online: isOnline,
         is_away: isAway,
         last_heartbeat: presence?.last_heartbeat || '',
         presence_status: isOnline ? 'online' : isAway ? 'away' : 'offline'
       };
-    }) || [];
+    });
 
     return NextResponse.json({ participants: formattedParticipants });
   } catch (error) {
