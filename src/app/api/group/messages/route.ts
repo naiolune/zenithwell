@@ -56,6 +56,15 @@ async function handleGetMessages(request: NextRequest) {
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
+    // Check if this is a group session FIRST (before fetching messages)
+    const { data: sessionData } = await serviceClient
+      .from('therapy_sessions')
+      .select('is_group, session_type, group_category')
+      .eq('session_id', sessionId)
+      .maybeSingle();
+
+    const isGroupSession = sessionData?.is_group || sessionData?.session_type === 'group';
+
     const { data: messages, error } = await serviceClient
       .from('session_messages')
       .select('*')
@@ -67,49 +76,61 @@ async function handleGetMessages(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to fetch messages' }, { status: 500 });
     }
 
-    // Check if this is a group session and if the first AI message is generic
+    // Check if the first AI message is generic and replace it for group sessions
     const firstAIMessage = messages?.find(msg => msg.sender_type === 'ai');
-    const genericIntros = [
-      'Welcome back! How are you feeling today? What would you like to work on?',
-      'Welcome! I\'m your wellness coach. Let\'s start with your goals:\n\nWhat are your main wellness goals? What would you like to work on?'
-    ];
     
-    const isGenericIntro = firstAIMessage && genericIntros.some(generic => 
-      firstAIMessage.content.trim() === generic.trim() || 
-      firstAIMessage.content.includes('Welcome back! How are you feeling today')
-    );
+    // Normalize text for comparison (remove extra whitespace)
+    const normalizeText = (text: string) => text.trim().replace(/\s+/g, ' ');
 
-    // Check if this is a group session
-    const { data: sessionData } = await serviceClient
-      .from('therapy_sessions')
-      .select('is_group, session_type, group_category')
-      .eq('session_id', sessionId)
-      .maybeSingle();
+    if (isGroupSession && firstAIMessage) {
+      const firstAIContent = normalizeText(firstAIMessage.content);
+      
+      // Check for generic intro patterns - be very flexible
+      const isGenericIntro = 
+        firstAIContent.includes('Welcome back! How are you feeling today') ||
+        firstAIContent.includes('Welcome! I\'m your wellness coach') ||
+        (firstAIContent.includes('Welcome back') && firstAIContent.includes('What would you like to work on')) ||
+        firstAIContent === normalizeText('Welcome back! How are you feeling today? What would you like to work on?') ||
+        firstAIContent === normalizeText('Welcome! I\'m your wellness coach. Let\'s start with your goals:\n\nWhat are your main wellness goals? What would you like to work on?');
 
-    const isGroupSession = sessionData?.is_group || sessionData?.session_type === 'group';
+      if (isGenericIntro) {
+        try {
+          console.log('[MESSAGES API] Detected generic intro for group session, generating custom intro...');
+          console.log('[MESSAGES API] First AI message content:', firstAIContent.substring(0, 100));
+          
+          const customIntro = await generateGroupSessionIntro(sessionId);
+          
+          if (customIntro && customIntro.trim()) {
+            const normalizedCustom = normalizeText(customIntro);
+            const normalizedExisting = normalizeText(firstAIMessage.content);
+            
+            if (normalizedCustom !== normalizedExisting) {
+              console.log('[MESSAGES API] Generated custom intro, updating message...');
+              // Update the generic intro with the custom one
+              const { error: updateError } = await serviceClient
+                .from('session_messages')
+                .update({ content: customIntro })
+                .eq('message_id', firstAIMessage.message_id);
 
-    // If it's a group session with a generic intro, try to replace it
-    if (isGroupSession && isGenericIntro && firstAIMessage) {
-      try {
-        const customIntro = await generateGroupSessionIntro(sessionId);
-        if (customIntro && customIntro !== firstAIMessage.content) {
-          // Update the generic intro with the custom one
-          const { error: updateError } = await serviceClient
-            .from('session_messages')
-            .update({ content: customIntro })
-            .eq('message_id', firstAIMessage.message_id);
-
-          if (!updateError) {
-            console.log('Replaced generic intro with custom group intro');
-            // Update the message in our local array
-            firstAIMessage.content = customIntro;
+              if (!updateError) {
+                console.log('[MESSAGES API] Successfully replaced generic intro with custom group intro');
+                // Update the message in our local array so it's returned correctly
+                firstAIMessage.content = customIntro;
+              } else {
+                console.error('[MESSAGES API] Error updating intro message:', updateError);
+              }
+            } else {
+              console.log('[MESSAGES API] Custom intro same as existing, skipping update');
+            }
           } else {
-            console.error('Error updating intro message:', updateError);
+            console.log('[MESSAGES API] Custom intro generation returned null or empty');
           }
+        } catch (error) {
+          console.error('[MESSAGES API] Error generating custom intro:', error);
+          // Continue with existing messages if generation fails
         }
-      } catch (error) {
-        console.error('Error generating custom intro:', error);
-        // Continue with existing messages if generation fails
+      } else {
+        console.log('[MESSAGES API] First AI message is not generic, skipping replacement');
       }
     }
 

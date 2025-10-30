@@ -585,6 +585,11 @@ export default function GroupSessionPage() {
   };
 
   const canSendMessage = () => {
+    // Participants can send messages once session is active
+    // Owners can only send when session is active and not waiting for participants
+    if (sessionData?.session_status === 'waiting') {
+      return false; // No one can send messages in waiting room
+    }
     return sessionData?.session_status === 'active' && 
            !waitingForParticipants && 
            !sessionWaiting;
@@ -796,8 +801,10 @@ export default function GroupSessionPage() {
             onKeyDown={handleInputKeyDown}
             disabled={!canSendMessage() || loading}
             placeholder={
-              sessionData?.session_status === 'waiting'
-                ? 'Session not started yet...'
+              sessionData?.session_status === 'waiting' && !isOwner
+                ? 'Waiting for session to start...'
+                : sessionData?.session_status === 'waiting' && isOwner
+                ? 'Start the session when all participants are ready...'
                 : waitingForParticipants
                 ? 'Waiting for all participants...'
                 : 'Type your message...'
