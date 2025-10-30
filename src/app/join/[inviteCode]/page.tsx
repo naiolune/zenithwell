@@ -77,6 +77,8 @@ export default function JoinSessionPage() {
       }
 
       const data = await response.json();
+      console.log('Invite data received:', data);
+      console.log('Group category from API:', data.group_category);
       setInviteData(data);
     } catch (error) {
       console.error('Error validating invite:', error);
@@ -224,13 +226,30 @@ export default function JoinSessionPage() {
     }
   };
 
-  const getCategoryDisplay = (category: GroupCategory): string => {
-    const categoryMap = {
-      [GROUP_SESSION_CONFIG.GROUP_CATEGORIES.RELATIONSHIP]: 'Relationship',
-      [GROUP_SESSION_CONFIG.GROUP_CATEGORIES.FAMILY]: 'Family',
-      [GROUP_SESSION_CONFIG.GROUP_CATEGORIES.GENERAL]: 'General'
-    };
-    return categoryMap[category] || 'General';
+  const getCategoryDisplay = (category: GroupCategory | string | null | undefined): string => {
+    if (!category) {
+      console.warn('Category is null or undefined');
+      return 'General';
+    }
+    
+    // Normalize category to lowercase string for comparison
+    const normalizedCategory = String(category).toLowerCase().trim();
+    
+    console.log('getCategoryDisplay - received category:', category, 'normalized:', normalizedCategory);
+    
+    if (normalizedCategory === 'relationship') {
+      return 'Relationship';
+    }
+    if (normalizedCategory === 'family') {
+      return 'Family';
+    }
+    if (normalizedCategory === 'general') {
+      return 'General';
+    }
+    
+    // Fallback - check what we actually received
+    console.warn('Unknown category value:', category, 'normalized:', normalizedCategory);
+    return 'General';
   };
 
   const getCategoryBadge = (category: GroupCategory) => {
