@@ -1,4 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
+import { createServerClient } from '@supabase/ssr';
+import { NextRequest } from 'next/server';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -26,27 +28,54 @@ export interface FeatureAccess {
 export class AuthValidator {
   /**
    * Validate user authentication and return user info
+   * Supports both Authorization header and cookie-based authentication
    */
-  static async validateAuth(authHeader: string | null): Promise<AuthResult> {
+  static async validateAuth(authHeader: string | null, request?: NextRequest): Promise<AuthResult> {
     try {
-      if (!authHeader) {
-        return {
-          isValid: false,
-          error: 'Authorization header required',
-          errorCode: 'MISSING_AUTH_HEADER',
-        };
+      let user;
+      
+      if (authHeader) {
+        // Try Authorization header first
+        const token = authHeader.replace('Bearer ', '');
+        const { data: authData, error: authError } = await supabase.auth.getUser(token);
+        
+        if (!authError && authData.user) {
+          user = authData.user;
+        }
       }
-
-      const token = authHeader.replace('Bearer ', '');
       
-      // Verify the token with Supabase
-      const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+      // If no header or header failed, try cookie-based auth
+      if (!user && request) {
+        try {
+          const serverSupabase = createServerClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+            {
+              cookies: {
+                getAll() {
+                  return request.cookies.getAll();
+                },
+                setAll() {
+                  // No-op in middleware context
+                },
+              },
+            }
+          );
+          const { data: { user: cookieUser }, error: cookieError } = await serverSupabase.auth.getUser();
+          
+          if (!cookieError && cookieUser) {
+            user = cookieUser;
+          }
+        } catch (cookieErr) {
+          // Cookie auth failed, will fall through to error
+        }
+      }
       
-      if (authError || !user) {
+      if (!user) {
         return {
           isValid: false,
-          error: 'Invalid or expired token',
-          errorCode: 'INVALID_TOKEN',
+          error: authHeader ? 'Invalid or expired token' : 'Authentication required',
+          errorCode: authHeader ? 'INVALID_TOKEN' : 'MISSING_AUTH',
         };
       }
 

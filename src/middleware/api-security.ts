@@ -119,7 +119,8 @@ export function withAPISecurity(
       // 5. Authentication check
       if (config.requireAuth) {
         const authResult = await AuthValidator.validateAuth(
-          request.headers.get('authorization')
+          request.headers.get('authorization'),
+          request
         );
 
         if (!authResult.isValid) {

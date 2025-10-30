@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, Users, Clock, AlertCircle, CheckCircle, Circle, CircleDot, Copy, Share2 } from 'lucide-react';
+import { ArrowLeft, Users, Clock, AlertCircle, CheckCircle, Circle, CircleDot } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { getUserSubscription, canAccessProFeature } from '@/lib/subscription';
 import { ChatMessage } from '@/types';
@@ -58,7 +58,6 @@ export default function GroupSessionPage() {
   const [pendingMessage, setPendingMessage] = useState<ChatMessage | null>(null);
   const [showBreakPrompt, setShowBreakPrompt] = useState(false);
   const [showEmergencyResources, setShowEmergencyResources] = useState(false);
-  const [copySuccess, setCopySuccess] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -445,26 +444,6 @@ export default function GroupSessionPage() {
     setShowEmergencyResources(false);
   };
 
-  const copyInviteLink = async () => {
-    const inviteUrl = `${window.location.origin}/join/${sessionId}`;
-    try {
-      await navigator.clipboard.writeText(inviteUrl);
-      setCopySuccess(true);
-      setTimeout(() => setCopySuccess(false), 2000);
-    } catch (err) {
-      console.error('Failed to copy invite link:', err);
-      // Fallback for older browsers
-      const textArea = document.createElement('textarea');
-      textArea.value = inviteUrl;
-      document.body.appendChild(textArea);
-      textArea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textArea);
-      setCopySuccess(true);
-      setTimeout(() => setCopySuccess(false), 2000);
-    }
-  };
-
   const handleBreakAccept = () => {
     setShowBreakPrompt(false);
     alert('Inhale for 4 seconds, hold for 4, exhale for 6. Repeat for two minutes.');
@@ -553,24 +532,6 @@ export default function GroupSessionPage() {
 
         {/* Footer Actions */}
         <div className="p-4 border-t border-slate-700 dark:border-slate-800 space-y-3">
-          <Button
-            onClick={copyInviteLink}
-            variant="outline"
-            size="sm"
-            className="w-full flex items-center gap-2 bg-slate-700 hover:bg-slate-600 border-slate-600 text-white"
-          >
-            {copySuccess ? (
-              <>
-                <CheckCircle className="h-4 w-4 text-green-500" />
-                Copied!
-              </>
-            ) : (
-              <>
-                <Copy className="h-4 w-4" />
-                Copy Invite
-              </>
-            )}
-          </Button>
           {isOwner && (
             <ShareLinkDialog
               sessionId={sessionId}
