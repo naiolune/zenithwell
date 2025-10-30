@@ -96,15 +96,6 @@ export default function GroupSessionPage() {
   }, [messages]);
 
   const loadUserData = async () => {
-    const { isPro } = await getUserSubscription();
-    setIsPro(isPro);
-    
-    if (!canAccessProFeature(isPro, 'group_sessions')) {
-      alert('Group sessions are only available with a Pro subscription.');
-      router.push('/dashboard/group');
-      return;
-    }
-
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
       router.push('/login');
@@ -112,7 +103,15 @@ export default function GroupSessionPage() {
     }
     setCurrentUserId(user.id);
 
-    // Check if user is the owner of this session and guard routing
+    // Check if user is a participant in this session (via invite or as owner)
+    const { data: participant } = await supabase
+      .from('session_participants')
+      .select('user_id')
+      .eq('session_id', sessionId)
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    // Check if user is the owner of this session
     const { data: session } = await supabase
       .from('therapy_sessions')
       .select('user_id, is_group, session_type')
@@ -124,7 +123,42 @@ export default function GroupSessionPage() {
         router.replace(`/dashboard/chat/${sessionId}`);
         return;
       }
-      setIsOwner(session.user_id === user.id);
+      const isSessionOwner = session.user_id === user.id;
+      setIsOwner(isSessionOwner);
+
+      // Only require Pro subscription if user is the session owner (creator)
+      // Participants who joined via invite don't need Pro
+      if (isSessionOwner) {
+        const { isPro } = await getUserSubscription();
+        setIsPro(isPro);
+        
+        if (!canAccessProFeature(isPro, 'group_sessions')) {
+          alert('Group sessions are only available with a Pro subscription.');
+          router.push('/dashboard/group');
+          return;
+        }
+      } else {
+        // For participants, check subscription but don't block access
+        const { isPro } = await getUserSubscription();
+        setIsPro(isPro);
+        
+        // If user is not a participant and not the owner, redirect
+        if (!participant) {
+          router.push('/dashboard/group');
+          return;
+        }
+      }
+    } else {
+      // Session doesn't exist or user can't access it
+      // Check if they're a participant (might be a valid invite scenario)
+      if (!participant) {
+        router.push('/dashboard/group');
+        return;
+      }
+      
+      // User is a participant, allow access
+      const { isPro } = await getUserSubscription();
+      setIsPro(isPro);
     }
   };
 
