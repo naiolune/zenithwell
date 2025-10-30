@@ -4,6 +4,7 @@ import { ServerAIService } from '@/lib/ai/server-ai-service';
 import { withAPISecurity, SecurityConfigs, SecurityContext } from '@/middleware/api-security';
 import { InputSanitizer } from '@/lib/security/input-sanitizer';
 import { SecureErrorHandler } from '@/lib/security/error-handler';
+import { generateGroupSessionIntro } from '@/lib/ai/group-intro-generator';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -312,7 +313,7 @@ async function handleChatRequest(request: NextRequest, context: SecurityContext)
     console.log('User message saved successfully');
 
     // Verify intro message exists
-    const { data: introMsg } = await supabase
+    let { data: introMsg } = await supabase
       .from('session_messages')
       .select('*')
       .eq('session_id', sessionId)
@@ -320,6 +321,42 @@ async function handleChatRequest(request: NextRequest, context: SecurityContext)
       .order('timestamp', { ascending: true })
       .limit(1)
       .maybeSingle();
+
+    // If no intro message exists, check if this is a group session and create one
+    if (!introMsg) {
+      const { data: session } = await supabase
+        .from('therapy_sessions')
+        .select('is_group, session_type, group_category')
+        .eq('session_id', sessionId)
+        .maybeSingle();
+
+      const isGroupSession = session?.is_group || session?.session_type === 'group';
+      
+      if (isGroupSession) {
+        try {
+          const customIntro = await generateGroupSessionIntro(sessionId);
+          if (customIntro) {
+            // Save the custom intro message
+            const { data: savedIntro, error: introError } = await supabase
+              .from('session_messages')
+              .insert({
+                session_id: sessionId,
+                sender_type: 'ai',
+                content: customIntro
+              })
+              .select()
+              .single();
+
+            if (!introError && savedIntro) {
+              introMsg = savedIntro;
+              console.log('Created custom group intro message');
+            }
+          }
+        } catch (error) {
+          console.error('Error creating custom group intro:', error);
+        }
+      }
+    }
 
     console.log('First AI message check:', introMsg ? `Found: ${introMsg.content.substring(0, 50)}...` : 'NOT FOUND');
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { withAPISecurity, SecurityConfigs, SecurityContext } from '@/middleware/api-security';
 import { detectFirstSession } from '@/lib/ai/memory-service';
+import { generateGroupSessionIntro } from '@/lib/ai/group-intro-generator';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -23,7 +24,7 @@ async function handleSessionInit(request: NextRequest, context: SecurityContext)
     // Verify user owns this session and get lock status
     const { data: session, error: sessionError } = await supabase
       .from('therapy_sessions')
-      .select('session_id, title, created_at, user_id, session_type, is_locked, locked_at, locked_by, lock_reason, can_unlock')
+      .select('session_id, title, created_at, user_id, session_type, is_group, group_category, is_locked, locked_at, locked_by, lock_reason, can_unlock')
       .eq('session_id', sessionId)
       .single();
 
@@ -64,10 +65,22 @@ async function handleSessionInit(request: NextRequest, context: SecurityContext)
     // If no messages exist, we need to add the appropriate AI introduction
     let initialMessage = null;
     if (!messages || messages.length === 0) {
+      // Check if this is a group session and generate custom intro
+      const isGroupSession = session.is_group || session.session_type === 'group';
+      let customIntro = null;
+      
+      if (isGroupSession) {
+        try {
+          customIntro = await generateGroupSessionIntro(sessionId);
+        } catch (error) {
+          console.error('Error generating custom group intro:', error);
+        }
+      }
+
       if (isFirstSession) {
         initialMessage = {
           id: 'ai-intro',
-          content: `Welcome! I'm your wellness coach. Let's start with your goals:
+          content: customIntro || `Welcome! I'm your wellness coach. Let's start with your goals:
 
 What are your main wellness goals? What would you like to work on?`,
           sender: 'ai',
@@ -76,7 +89,7 @@ What are your main wellness goals? What would you like to work on?`,
       } else {
         initialMessage = {
           id: 'ai-greeting',
-          content: `Welcome back! How are you feeling today? What would you like to work on?`,
+          content: customIntro || `Welcome back! How are you feeling today? What would you like to work on?`,
           sender: 'ai',
           timestamp: new Date().toISOString(),
         };
