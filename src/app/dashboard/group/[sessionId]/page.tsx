@@ -75,7 +75,8 @@ export default function GroupSessionPage() {
   useEffect(() => {
     loadUserData();
     fetchSessionData();
-    fetchMessages();
+    ensureParticipantMembership();
+    fetchParticipants();
     startHeartbeat();
     setupRealtimeSubscription();
 
@@ -108,7 +109,7 @@ export default function GroupSessionPage() {
       return;
     }
 
-    // Check if user is the owner of this session
+    // Check if user is the owner of this session and guard routing
     const { data: session } = await supabase
       .from('therapy_sessions')
       .select('user_id, is_group, session_type')
@@ -116,12 +117,44 @@ export default function GroupSessionPage() {
       .single();
 
     if (session) {
-      // Route guard: if not a group session, redirect to individual chat
       if (!session.is_group && session.session_type !== 'group') {
         router.replace(`/dashboard/chat/${sessionId}`);
         return;
       }
       setIsOwner(session.user_id === user.id);
+    }
+  };
+
+  // Ensure current user is present in session_participants
+  const ensureParticipantMembership = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data: existing, error: selErr } = await supabase
+        .from('session_participants')
+        .select('user_id')
+        .eq('session_id', sessionId)
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (selErr) {
+        console.error('Error checking participant:', selErr);
+        return;
+      }
+
+      if (!existing) {
+        const { error: insErr } = await supabase
+          .from('session_participants')
+          .insert({ session_id: sessionId, user_id: user.id, role: 'member', is_ready: false });
+        if (insErr) {
+          console.error('Error adding participant:', insErr);
+        } else {
+          fetchParticipants();
+        }
+      }
+    } catch (e) {
+      console.error('ensureParticipantMembership error:', e);
     }
   };
 
@@ -141,36 +174,78 @@ export default function GroupSessionPage() {
   };
 
   const fetchParticipants = async () => {
-    const { data, error } = await supabase
-      .rpc('get_session_participants', { session_uuid: sessionId });
+    try {
+      // Prefer RPC if available
+      const { data, error } = await supabase
+        .rpc('get_session_participants', { session_uuid: sessionId });
 
-    if (error) {
-      console.error('Error fetching participants:', error);
-      return;
+      if (!error && data && Array.isArray(data.participants)) {
+        setParticipants((data.participants || []).map((p: any) => ({
+          user_id: p.user_id,
+          email: p.email || '',
+          full_name: p.full_name || p.user_name || 'Member',
+          is_ready: !!p.is_ready,
+          is_online: !!p.is_online,
+          is_away: !!p.is_away,
+          last_heartbeat: p.last_heartbeat || null,
+          presence_status: p.presence_status || 'unknown',
+        })));
+        return;
+      }
+
+      // Fallback: load from session_participants + users
+      const { data: spRows, error: spErr } = await supabase
+        .from('session_participants')
+        .select('user_id, is_ready')
+        .eq('session_id', sessionId);
+      if (spErr) {
+        console.error('Error loading participants fallback:', spErr);
+        return;
+      }
+
+      const ids = (spRows || []).map(r => r.user_id);
+      if (ids.length === 0) {
+        setParticipants([]);
+        return;
+      }
+
+      const { data: userRows, error: uErr } = await supabase
+        .from('users')
+        .select('user_id, email, full_name')
+        .in('user_id', ids);
+      if (uErr) {
+        console.error('Error loading users for participants:', uErr);
+        setParticipants((spRows || []).map(r => ({
+          user_id: r.user_id,
+          email: '',
+          full_name: 'Member',
+          is_ready: !!(r as any).is_ready,
+          is_online: false,
+          is_away: false,
+          last_heartbeat: '' as any,
+          presence_status: 'unknown',
+        })));
+        return;
+      }
+
+      const userMap = new Map(userRows.map(u => [u.user_id, u]));
+      const combined: Participant[] = (spRows || []).map(r => {
+        const u = userMap.get(r.user_id);
+        return {
+          user_id: r.user_id,
+          email: u?.email || '',
+          full_name: u?.full_name || 'Member',
+          is_ready: (r as any).is_ready || false,
+          is_online: false,
+          is_away: false,
+          last_heartbeat: '' as any,
+          presence_status: 'unknown',
+        };
+      });
+      setParticipants(combined);
+    } catch (e) {
+      console.error('fetchParticipants error:', e);
     }
-
-    setParticipants(data.participants || []);
-  };
-
-  const fetchMessages = async () => {
-    const { data, error } = await supabase
-      .from('session_messages')
-      .select('*')
-      .eq('session_id', sessionId)
-      .order('timestamp', { ascending: true });
-
-    if (error) {
-      console.error('Error fetching messages:', error);
-      return;
-    }
-
-    // Convert timestamp strings to Date objects
-    const messagesWithDates = (data || []).map((msg: any) => ({
-      ...msg,
-      timestamp: msg.timestamp ? new Date(msg.timestamp) : new Date()
-    }));
-
-    setMessages(messagesWithDates);
   };
 
   const startHeartbeat = () => {
@@ -195,26 +270,21 @@ export default function GroupSessionPage() {
         table: 'session_messages',
         filter: `session_id=eq.${sessionId}`
       }, (payload) => {
-        const newMessage = payload.new as any;
-        // Convert timestamp string to Date object
-        const messageWithDate: ChatMessage = {
-          ...newMessage,
-          timestamp: newMessage.timestamp ? new Date(newMessage.timestamp) : new Date()
-        };
-        setMessages(prev => [...prev, messageWithDate]);
+        const newMessage = payload.new as ChatMessage;
+        setMessages(prev => [...prev, newMessage]);
       })
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'session_participants',
+        filter: `session_id=eq.${sessionId}`
+      }, () => fetchParticipants())
       .on('postgres_changes', {
         event: 'UPDATE',
         schema: 'public',
         table: 'session_participants',
         filter: `session_id=eq.${sessionId}`
-      }, () => {
-        fetchParticipants();
-      })
-      .on('presence', { event: 'sync' }, () => {
-        const state = channel.presenceState();
-        console.log('Presence state:', state);
-      })
+      }, () => fetchParticipants())
       .subscribe();
 
     return () => {
