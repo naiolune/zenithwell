@@ -227,10 +227,12 @@ async function handleGetIntroductions(request: NextRequest) {
 
 export const POST = withAPISecurity(handleSubmitIntroduction, {
   requireAuth: true,
-  rateLimitType: 'general_api'
+  rateLimitType: 'general_api',
+  requireCSRF: false
 });
 
 export const GET = withAPISecurity(handleGetIntroductions, {
   requireAuth: true,
-  rateLimitType: 'general_api'
+  rateLimitType: 'general_api',
+  requireCSRF: false
 });
