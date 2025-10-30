@@ -153,10 +153,10 @@ export function IntroductionForm({ groupCategory, sessionId, onSubmit, isLoading
   };
 
   return (
-    <Card className="w-full max-w-2xl mx-auto">
+    <Card className="w-full max-w-2xl mx-auto bg-transparent border-none shadow-none">
       <CardHeader>
-        <CardTitle>{getTitle()}</CardTitle>
-        <CardDescription>{getDescription()}</CardDescription>
+        <CardTitle className="text-gray-900 dark:text-white">{getTitle()}</CardTitle>
+        <CardDescription className="text-gray-600 dark:text-gray-300">{getDescription()}</CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-6">
@@ -180,7 +180,7 @@ export function IntroductionForm({ groupCategory, sessionId, onSubmit, isLoading
                   </SelectContent>
                 </Select>
                 {errors.relationshipRole && (
-                  <p className="text-sm text-red-500">{errors.relationshipRole}</p>
+                  <p className="text-sm text-red-500 dark:text-red-400">{errors.relationshipRole}</p>
                 )}
               </div>
 

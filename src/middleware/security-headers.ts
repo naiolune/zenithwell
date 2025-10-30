@@ -4,16 +4,20 @@ import { NextRequest, NextResponse } from 'next/server';
  * Security headers middleware
  */
 export function addSecurityHeaders(response: NextResponse): NextResponse {
+  // Remove any CSP-Report-Only headers that might conflict
+  response.headers.delete('Content-Security-Policy-Report-Only');
+  
   // Content Security Policy
   response.headers.set(
     'Content-Security-Policy',
     "default-src 'self'; " +
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com; " +
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://*.vercel.app; " +
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
     "font-src 'self' https://fonts.gstatic.com; " +
-    "img-src 'self' data: https:; " +
-    "connect-src 'self' https://api.stripe.com https://*.supabase.co wss://*.supabase.co; " +
+    "img-src 'self' data: https: blob:; " +
+    "connect-src 'self' https://zenithwell.online wss://zenithwell.online https://api.stripe.com https://*.supabase.co wss://*.supabase.co https://*.vercel.app; " +
     "frame-src 'self' https://js.stripe.com; " +
+    "worker-src 'self' blob:; " +
     "object-src 'none'; " +
     "base-uri 'self'; " +
     "form-action 'self';"

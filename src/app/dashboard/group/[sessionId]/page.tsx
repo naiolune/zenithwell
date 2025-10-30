@@ -76,6 +76,7 @@ export default function GroupSessionPage() {
     loadUserData();
     fetchSessionData();
     ensureParticipantMembership();
+    fetchMessages();
     // Mark presence immediately on entry
     markOnline(true);
     fetchParticipants();
@@ -244,40 +245,80 @@ export default function GroupSessionPage() {
   };
 
   const fetchSessionData = async () => {
-    // Use maybeSingle() to handle RLS blocking for participants
-    // Participants who joined via invite may not have access to therapy_sessions
+    // Try to fetch session data directly first
     const { data, error } = await supabase
       .from('therapy_sessions')
       .select('*')
       .eq('session_id', sessionId)
       .maybeSingle();
 
-    if (error) {
-      // Log error but don't block - participants can still use the session
-      console.error('Error fetching session data:', error);
-      // Set minimal session data for participants
-      setSessionData({
-        session_id: sessionId,
-        title: 'Group Wellness Session',
-        group_category: 'general',
-        session_status: 'active',
-        user_id: ''
-      } as SessionData);
+    if (data) {
+      setSessionData(data);
       return;
     }
 
-    if (data) {
-      setSessionData(data);
-    } else {
-      // Session data not accessible (likely RLS block for participant)
-      // Set minimal session data so the page can still function
-      setSessionData({
-        session_id: sessionId,
-        title: 'Group Wellness Session',
-        group_category: 'general',
-        session_status: 'active',
-        user_id: ''
-      } as SessionData);
+    // If RLS blocks access, try to get session info from any active invite
+    // This allows participants to see session title and category
+    const { data: invites } = await supabase
+      .from('session_invites')
+      .select('session_id')
+      .eq('session_id', sessionId)
+      .eq('is_active', true)
+      .gt('expires_at', new Date().toISOString())
+      .limit(1);
+
+    if (invites && invites.length > 0) {
+      // There's a valid invite, try to get session details via API
+      try {
+        // Try to get session info from the invite validation endpoint using sessionId
+        // This uses service role client internally
+        const response = await fetch(`/api/group/invite?sessionId=${sessionId}`);
+        if (response.ok) {
+          const inviteData = await response.json();
+          setSessionData({
+            session_id: sessionId,
+            title: inviteData.title || 'Group Wellness Session',
+            group_category: inviteData.group_category || 'general',
+            session_status: inviteData.session_status || 'active',
+            user_id: ''
+          } as SessionData);
+          return;
+        }
+      } catch (e) {
+        console.error('Error fetching session via invite API:', e);
+      }
+    }
+
+    // Fallback: Set minimal session data
+    setSessionData({
+      session_id: sessionId,
+      title: 'Group Wellness Session',
+      group_category: 'general',
+      session_status: 'active',
+      user_id: ''
+    } as SessionData);
+  };
+
+  const fetchMessages = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const response = await fetch(`/api/group/messages?sessionId=${sessionId}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setMessages(data.messages || []);
+      } else {
+        console.error('Error fetching messages:', await response.text());
+      }
+    } catch (error) {
+      console.error('Error fetching messages:', error);
     }
   };
 

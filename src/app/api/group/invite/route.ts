@@ -153,14 +153,16 @@ async function handleValidateInvite(request: NextRequest, context: SecurityConte
     const supabase = await createClient();
     const { searchParams } = new URL(request.url);
     const inviteCode = searchParams.get('code');
+    const sessionIdParam = searchParams.get('sessionId'); // Allow fetching by sessionId for participants
     
-    if (!inviteCode) {
-      return NextResponse.json({ error: 'Invite code is required' }, { status: 400 });
+    // Allow fetching session info by sessionId even without invite code (for participants)
+    if (!inviteCode && !sessionIdParam) {
+      return NextResponse.json({ error: 'Invite code or session ID is required' }, { status: 400 });
     }
 
     // Get invite details - use left join in case therapy_sessions data isn't available
-    // First get the invite
-    const { data: invite, error: inviteError } = await supabase
+    // First get the invite (by code or sessionId)
+    let inviteQuery = supabase
       .from('session_invites')
       .select(`
         id,
@@ -170,18 +172,64 @@ async function handleValidateInvite(request: NextRequest, context: SecurityConte
         max_participants,
         is_active
       `)
-      .eq('invite_code', inviteCode.toUpperCase())
-      .eq('is_active', true)
-      .single();
+      .eq('is_active', true);
 
-    if (inviteError || !invite) {
+    if (inviteCode) {
+      inviteQuery = inviteQuery.eq('invite_code', inviteCode.toUpperCase());
+    } else if (sessionIdParam) {
+      inviteQuery = inviteQuery.eq('session_id', sessionIdParam);
+    }
+
+    const { data: invite, error: inviteError } = await inviteQuery
+      .gt('expires_at', new Date().toISOString())
+      .maybeSingle();
+
+    if (inviteError) {
       console.error('[INVITE] Validate invite error:', {
         error: inviteError?.message,
         code: inviteError?.code,
         details: inviteError?.details,
-        inviteCode: inviteCode
+        inviteCode: inviteCode,
+        sessionId: sessionIdParam
       });
-      return NextResponse.json({ error: 'Invalid invite code' }, { status: 404 });
+      return NextResponse.json({ error: 'Error fetching invite' }, { status: 500 });
+    }
+
+    if (!invite) {
+      // If no invite found but sessionId provided, still try to return session info
+      if (sessionIdParam && !inviteCode) {
+        // Try to get session info directly using service client
+        const serviceClient = createServiceClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+        
+        const { data: therapySession } = await serviceClient
+          .from('therapy_sessions')
+          .select('session_id, title, group_category, session_status')
+          .eq('session_id', sessionIdParam)
+          .maybeSingle();
+
+        if (therapySession) {
+          const { data: participants } = await serviceClient
+            .from('session_participants')
+            .select('user_id')
+            .eq('session_id', sessionIdParam);
+
+          return NextResponse.json({
+            session_id: therapySession.session_id,
+            title: therapySession.title || 'Group Wellness Session',
+            group_category: therapySession.group_category || 'general',
+            session_status: therapySession.session_status || 'active',
+            expires_at: new Date(Date.now() + 86400000).toISOString(), // Default expiry
+            max_participants: 10,
+            current_participants: participants?.length || 0,
+            is_full: false,
+            can_join: true
+          });
+        }
+      }
+      return NextResponse.json({ error: 'Invalid invite code or session not found' }, { status: 404 });
     }
 
     // Then get the therapy session details separately

@@ -272,10 +272,10 @@ export default function JoinSessionPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen w-full bg-gradient-to-br from-indigo-900 via-purple-900 to-indigo-800 flex items-center justify-center">
+      <div className="min-h-screen w-full bg-gradient-to-br from-indigo-50 via-white to-purple-50 dark:from-indigo-900 dark:via-purple-900 dark:to-indigo-800 flex items-center justify-center">
         <div className="text-center space-y-4">
-          <div className="animate-spin rounded-full h-16 w-16 border-4 border-white border-t-transparent mx-auto"></div>
-          <p className="text-white font-medium text-lg">Loading invite details...</p>
+          <div className="animate-spin rounded-full h-16 w-16 border-4 border-indigo-600 dark:border-white border-t-transparent mx-auto"></div>
+          <p className="text-indigo-600 dark:text-white font-medium text-lg">Loading invite details...</p>
         </div>
       </div>
     );
@@ -283,23 +283,23 @@ export default function JoinSessionPage() {
 
   if (!inviteData) {
     return (
-      <div className="min-h-screen w-full bg-gradient-to-br from-indigo-900 via-purple-900 to-indigo-800 flex items-center justify-center p-4">
-        <Card className="w-full max-w-md border-2 border-red-300 shadow-2xl bg-white">
+      <div className="min-h-screen w-full bg-gradient-to-br from-indigo-50 via-white to-purple-50 dark:from-indigo-900 dark:via-purple-900 dark:to-indigo-800 flex items-center justify-center p-4">
+        <Card className="w-full max-w-md border-2 border-red-300 dark:border-red-600 shadow-2xl bg-white dark:bg-slate-800">
           <CardHeader className="text-center pb-4">
             <div className="flex justify-center mb-4">
-              <div className="rounded-full bg-red-100 p-4">
-                <XCircle className="h-12 w-12 text-red-600" />
+              <div className="rounded-full bg-red-100 dark:bg-red-900/30 p-4">
+                <XCircle className="h-12 w-12 text-red-600 dark:text-red-400" />
               </div>
             </div>
-            <CardTitle className="text-3xl font-bold text-gray-900">Invalid Invite</CardTitle>
-            <CardDescription className="text-base mt-2">
+            <CardTitle className="text-3xl font-bold text-gray-900 dark:text-white">Invalid Invite</CardTitle>
+            <CardDescription className="text-base mt-2 text-gray-600 dark:text-gray-300">
               This invite link is invalid, expired, or has been revoked.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <Button 
               onClick={() => router.push('/')} 
-              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white h-12 text-base font-semibold"
+              className="w-full bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white h-12 text-base font-semibold"
             >
               Return Home
             </Button>
@@ -311,13 +311,13 @@ export default function JoinSessionPage() {
 
   if (showIntroductionForm) {
     return (
-      <div className="min-h-screen w-full bg-gradient-to-br from-indigo-900 via-purple-900 to-indigo-800 py-8 px-4">
+      <div className="min-h-screen w-full bg-gradient-to-br from-indigo-50 via-white to-purple-50 dark:from-indigo-900 dark:via-purple-900 dark:to-indigo-800 py-8 px-4">
         <div className="max-w-3xl mx-auto">
           <div className="mb-6 text-center">
-            <h1 className="text-3xl font-bold text-white mb-2">Welcome to the Session</h1>
-            <p className="text-indigo-200">Please introduce yourself to help create a meaningful experience</p>
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">Welcome to the Session</h1>
+            <p className="text-gray-600 dark:text-indigo-200">Please introduce yourself to help create a meaningful experience</p>
           </div>
-          <Card className="bg-white shadow-2xl">
+          <Card className="bg-white dark:bg-slate-800 shadow-2xl border border-gray-200 dark:border-slate-700">
             <CardContent className="p-6">
               <IntroductionForm
                 groupCategory={inviteData.group_category}
@@ -337,19 +337,19 @@ export default function JoinSessionPage() {
   const isExpired = new Date(inviteData.expires_at) < new Date();
 
   return (
-    <div className="min-h-screen w-full bg-gradient-to-br from-indigo-900 via-purple-900 to-indigo-800 py-12 px-4">
+    <div className="min-h-screen w-full bg-gradient-to-br from-indigo-50 via-white to-purple-50 dark:from-indigo-900 dark:via-purple-900 dark:to-indigo-800 py-12 px-4">
       <div className="max-w-2xl mx-auto">
         {/* Header */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-white/20 backdrop-blur-sm mb-4">
-            <Sparkles className="h-10 w-10 text-white" />
+          <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-indigo-100 dark:bg-white/20 backdrop-blur-sm mb-4">
+            <Sparkles className="h-10 w-10 text-indigo-600 dark:text-white" />
           </div>
-          <h1 className="text-4xl font-bold text-white mb-3">You're Invited!</h1>
-          <p className="text-lg text-indigo-200">Join a wellness session and start your journey</p>
+          <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-3">You're Invited!</h1>
+          <p className="text-lg text-gray-600 dark:text-indigo-200">Join a wellness session and start your journey</p>
         </div>
 
         {/* Main Card */}
-        <Card className="border-2 border-white/20 shadow-2xl bg-white overflow-hidden">
+        <Card className="border-2 border-gray-200 dark:border-white/20 shadow-2xl bg-white dark:bg-slate-800 overflow-hidden">
           {/* Header Section */}
           <div className="bg-gradient-to-r from-indigo-600 to-purple-600 p-6 text-white">
             <div className="flex items-start justify-between mb-4">
@@ -372,61 +372,61 @@ export default function JoinSessionPage() {
           <CardContent className="p-6 space-y-6">
             {/* Session Details */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="flex items-center space-x-3 p-4 bg-gray-50 rounded-lg">
+              <div className="flex items-center space-x-3 p-4 bg-gray-50 dark:bg-slate-700/50 rounded-lg">
                 <div className="flex-shrink-0">
-                  <Users className="h-5 w-5 text-indigo-600" />
+                  <Users className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
                 </div>
                 <div>
-                  <p className="text-sm text-gray-600">Participants</p>
-                  <p className="text-lg font-semibold text-gray-900">
+                  <p className="text-sm text-gray-600 dark:text-gray-300">Participants</p>
+                  <p className="text-lg font-semibold text-gray-900 dark:text-white">
                     {inviteData.current_participants} / {inviteData.max_participants}
                   </p>
                 </div>
               </div>
 
-              <div className="flex items-center space-x-3 p-4 bg-gray-50 rounded-lg">
+              <div className="flex items-center space-x-3 p-4 bg-gray-50 dark:bg-slate-700/50 rounded-lg">
                 <div className="flex-shrink-0">
-                  <Clock className="h-5 w-5 text-indigo-600" />
+                  <Clock className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
                 </div>
                 <div>
-                  <p className="text-sm text-gray-600">Expires In</p>
-                  <p className="text-lg font-semibold text-gray-900">
+                  <p className="text-sm text-gray-600 dark:text-gray-300">Expires In</p>
+                  <p className="text-lg font-semibold text-gray-900 dark:text-white">
                     {formatExpiration(inviteData.expires_at)}
                   </p>
                 </div>
               </div>
 
-              <div className="flex items-center space-x-3 p-4 bg-gray-50 rounded-lg">
+              <div className="flex items-center space-x-3 p-4 bg-gray-50 dark:bg-slate-700/50 rounded-lg">
                 <div className="flex-shrink-0">
-                  <Calendar className="h-5 w-5 text-indigo-600" />
+                  <Calendar className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
                 </div>
                 <div>
-                  <p className="text-sm text-gray-600">Status</p>
-                  <p className="text-lg font-semibold text-gray-900 capitalize">
+                  <p className="text-sm text-gray-600 dark:text-gray-300">Status</p>
+                  <p className="text-lg font-semibold text-gray-900 dark:text-white capitalize">
                     {inviteData.session_status}
                   </p>
                 </div>
               </div>
 
-              <div className="flex items-center space-x-3 p-4 bg-gray-50 rounded-lg">
+              <div className="flex items-center space-x-3 p-4 bg-gray-50 dark:bg-slate-700/50 rounded-lg">
                 <div className="flex-shrink-0">
-                  <Shield className="h-5 w-5 text-indigo-600" />
+                  <Shield className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
                 </div>
                 <div>
-                  <p className="text-sm text-gray-600">Security</p>
-                  <p className="text-lg font-semibold text-gray-900">Secure</p>
+                  <p className="text-sm text-gray-600 dark:text-gray-300">Security</p>
+                  <p className="text-lg font-semibold text-gray-900 dark:text-white">Secure</p>
                 </div>
               </div>
             </div>
 
             {/* Status Messages */}
             {inviteData.is_full && (
-              <div className="p-4 bg-red-50 border-2 border-red-200 rounded-lg">
+              <div className="p-4 bg-red-50 dark:bg-red-900/20 border-2 border-red-200 dark:border-red-800 rounded-lg">
                 <div className="flex items-start space-x-3">
-                  <XCircle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
+                  <XCircle className="h-5 w-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
                   <div>
-                    <p className="font-semibold text-red-900">Session Full</p>
-                    <p className="text-sm text-red-700 mt-1">
+                    <p className="font-semibold text-red-900 dark:text-red-200">Session Full</p>
+                    <p className="text-sm text-red-700 dark:text-red-300 mt-1">
                       This session has reached its maximum capacity. Please contact the session organizer for more information.
                     </p>
                   </div>
@@ -435,12 +435,12 @@ export default function JoinSessionPage() {
             )}
 
             {!inviteData.can_join && !inviteData.is_full && (
-              <div className="p-4 bg-yellow-50 border-2 border-yellow-200 rounded-lg">
+              <div className="p-4 bg-yellow-50 dark:bg-yellow-900/20 border-2 border-yellow-200 dark:border-yellow-800 rounded-lg">
                 <div className="flex items-start space-x-3">
-                  <Clock className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+                  <Clock className="h-5 w-5 text-yellow-600 dark:text-yellow-400 flex-shrink-0 mt-0.5" />
                   <div>
-                    <p className="font-semibold text-yellow-900">Session Not Ready</p>
-                    <p className="text-sm text-yellow-700 mt-1">
+                    <p className="font-semibold text-yellow-900 dark:text-yellow-200">Session Not Ready</p>
+                    <p className="text-sm text-yellow-700 dark:text-yellow-300 mt-1">
                       This session is not yet ready for new participants. Please check back later.
                     </p>
                   </div>
@@ -449,12 +449,12 @@ export default function JoinSessionPage() {
             )}
 
             {isExpired && (
-              <div className="p-4 bg-red-50 border-2 border-red-200 rounded-lg">
+              <div className="p-4 bg-red-50 dark:bg-red-900/20 border-2 border-red-200 dark:border-red-800 rounded-lg">
                 <div className="flex items-start space-x-3">
-                  <XCircle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
+                  <XCircle className="h-5 w-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
                   <div>
-                    <p className="font-semibold text-red-900">Invite Expired</p>
-                    <p className="text-sm text-red-700 mt-1">
+                    <p className="font-semibold text-red-900 dark:text-red-200">Invite Expired</p>
+                    <p className="text-sm text-red-700 dark:text-red-300 mt-1">
                       This invite link has expired. Please request a new invite from the session organizer.
                     </p>
                   </div>
@@ -484,12 +484,12 @@ export default function JoinSessionPage() {
                 </Button>
 
                 <div className="text-center">
-                  <p className="text-sm text-gray-600">
+                  <p className="text-sm text-gray-600 dark:text-gray-300">
                     Don't have an account?{' '}
                     <Button
                       variant="link"
                       onClick={() => router.push('/signup')}
-                      className="p-0 h-auto text-indigo-600 hover:text-indigo-700 font-semibold"
+                      className="p-0 h-auto text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300 font-semibold"
                     >
                       Sign up here
                     </Button>
@@ -499,8 +499,8 @@ export default function JoinSessionPage() {
             )}
 
             {/* Footer Info */}
-            <div className="pt-4 border-t border-gray-200">
-              <div className="flex items-center justify-center space-x-2 text-xs text-gray-500">
+            <div className="pt-4 border-t border-gray-200 dark:border-slate-700">
+              <div className="flex items-center justify-center space-x-2 text-xs text-gray-500 dark:text-gray-400">
                 <Shield className="h-4 w-4" />
                 <span>Your data is encrypted and secure</span>
               </div>
