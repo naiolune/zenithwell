@@ -40,8 +40,19 @@ export default function JoinSessionPage() {
   }, [inviteCode]);
 
   const loadUserData = async () => {
-    const { isPro } = await getUserSubscription();
-    setIsPro(isPro);
+    try {
+      // Check if user is authenticated before calling getUserSubscription
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { isPro } = await getUserSubscription();
+        setIsPro(isPro);
+      } else {
+        setIsPro(false);
+      }
+    } catch (error) {
+      // User is not authenticated, which is fine for viewing invite
+      setIsPro(false);
+    }
   };
 
   const validateInvite = async () => {
@@ -68,14 +79,6 @@ export default function JoinSessionPage() {
   };
 
   const joinSession = async () => {
-    if (!canAccessProFeature(isPro, 'group_sessions')) {
-      // Store invite code for redirect after login/upgrade
-      localStorage.setItem('pendingInviteCode', inviteCode);
-      alert('Group sessions are only available with a Pro subscription. Please upgrade to continue.');
-      router.push('/dashboard/settings');
-      return;
-    }
-
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
       // Store invite code for redirect after login
@@ -85,12 +88,17 @@ export default function JoinSessionPage() {
     }
 
     // Check if user is already a participant
-    const { data: existingParticipant } = await supabase
+    const { data: existingParticipant, error: participantError } = await supabase
       .from('session_participants')
       .select('*')
       .eq('session_id', inviteData!.session_id)
       .eq('user_id', user.id)
-      .single();
+      .maybeSingle();
+
+    if (participantError && participantError.code !== 'PGRST116') {
+      // PGRST116 is "not found" which is expected, ignore it
+      console.error('Error checking participant status:', participantError);
+    }
 
     if (existingParticipant) {
       // User is already a participant, redirect to session
@@ -99,12 +107,17 @@ export default function JoinSessionPage() {
     }
 
     // Check if user has already submitted introduction
-    const { data: existingIntroduction } = await supabase
+    const { data: existingIntroduction, error: introError } = await supabase
       .from('participant_introductions')
       .select('*')
       .eq('session_id', inviteData!.session_id)
       .eq('user_id', user.id)
-      .single();
+      .maybeSingle();
+
+    if (introError && introError.code !== 'PGRST116') {
+      // PGRST116 is "not found" which is expected, ignore it
+      console.error('Error checking introduction status:', introError);
+    }
 
     if (existingIntroduction) {
       // User has already submitted introduction, add to session
@@ -121,19 +134,23 @@ export default function JoinSessionPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // Add user as participant
-      const { error } = await supabase
-        .from('session_participants')
-        .insert({
-          session_id: inviteData!.session_id,
-          user_id: user.id,
-          role: 'participant',
-          is_ready: false
-        });
+      // Join session via API route (handles RLS)
+      const response = await fetch('/api/group/join', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          inviteCode: inviteCode,
+          sessionId: inviteData!.session_id
+        })
+      });
 
-      if (error) {
-        console.error('Error joining session:', error);
-        alert('Failed to join session. Please try again.');
+      const data = await response.json();
+
+      if (!response.ok) {
+        console.error('Error joining session:', data);
+        alert(data.error || 'Failed to join session. Please try again.');
       } else {
         router.push(`/dashboard/group/${inviteData!.session_id}`);
       }
@@ -152,15 +169,35 @@ export default function JoinSessionPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
+      // Map camelCase form fields to snake_case database fields
+      const dbData: any = {
+        session_id: inviteData!.session_id,
+        user_id: user.id,
+        group_category: inviteData!.group_category
+      };
+
+      // Map fields based on group category
+      if (inviteData!.group_category === GROUP_SESSION_CONFIG.GROUP_CATEGORIES.RELATIONSHIP) {
+        if (introductionData.relationshipRole) dbData.relationship_role = introductionData.relationshipRole;
+        if (introductionData.whyWellness) dbData.why_wellness = introductionData.whyWellness;
+        if (introductionData.goals) dbData.goals = introductionData.goals;
+        if (introductionData.challenges) dbData.challenges = introductionData.challenges;
+      } else if (inviteData!.group_category === GROUP_SESSION_CONFIG.GROUP_CATEGORIES.FAMILY) {
+        if (introductionData.familyRole) dbData.family_role = introductionData.familyRole;
+        if (introductionData.whyWellness) dbData.why_wellness = introductionData.whyWellness;
+        if (introductionData.familyGoals) dbData.family_goals = introductionData.familyGoals;
+        if (introductionData.whatToAchieve) dbData.what_to_achieve = introductionData.whatToAchieve;
+      } else if (inviteData!.group_category === GROUP_SESSION_CONFIG.GROUP_CATEGORIES.GENERAL) {
+        if (introductionData.participantRole) dbData.participant_role = introductionData.participantRole;
+        if (introductionData.wellnessReason) dbData.wellness_reason = introductionData.wellnessReason;
+        if (introductionData.personalGoals) dbData.personal_goals = introductionData.personalGoals;
+        if (introductionData.expectations) dbData.expectations = introductionData.expectations;
+      }
+
       // Submit introduction
       const { error: introError } = await supabase
         .from('participant_introductions')
-        .insert({
-          session_id: inviteData!.session_id,
-          user_id: user.id,
-          group_category: inviteData!.group_category,
-          ...introductionData
-        });
+        .insert(dbData);
 
       if (introError) {
         console.error('Error saving introduction:', introError);
@@ -197,7 +234,7 @@ export default function JoinSessionPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="fixed inset-0 bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
       </div>
     );
@@ -205,7 +242,8 @@ export default function JoinSessionPage() {
 
   if (!inviteData) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center p-4">
+      <div className="fixed inset-0 bg-gradient-to-br from-blue-50 via-white to-purple-50 overflow-y-auto">
+        <div className="min-h-screen flex items-center justify-center p-4">
         <Card className="w-full max-w-md">
           <CardHeader className="text-center">
             <div className="flex justify-center mb-4">
@@ -222,27 +260,31 @@ export default function JoinSessionPage() {
             </Button>
           </CardContent>
         </Card>
+        </div>
       </div>
     );
   }
 
   if (showIntroductionForm) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center p-4">
-        <div className="w-full max-w-2xl">
-          <IntroductionForm
-            groupCategory={inviteData.group_category}
-            sessionId={inviteData.session_id}
-            onSubmit={handleIntroductionSubmit}
-            isLoading={isSubmittingIntroduction}
-          />
+      <div className="fixed inset-0 bg-gradient-to-br from-blue-50 via-white to-purple-50 overflow-y-auto">
+        <div className="min-h-screen flex items-center justify-center p-4">
+          <div className="w-full max-w-2xl">
+            <IntroductionForm
+              groupCategory={inviteData.group_category}
+              sessionId={inviteData.session_id}
+              onSubmit={handleIntroductionSubmit}
+              isLoading={isSubmittingIntroduction}
+            />
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 bg-gradient-to-br from-blue-50 via-white to-purple-50 overflow-y-auto">
+      <div className="min-h-screen flex items-center justify-center p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <div className="flex justify-center mb-4">
@@ -308,38 +350,14 @@ export default function JoinSessionPage() {
             </div>
           )}
 
-          {!isPro && (
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-              <div className="flex items-center space-x-2">
-                <Crown className="h-5 w-5 text-amber-600" />
-                <div>
-                  <p className="font-medium text-amber-800">Pro Feature Required</p>
-                  <p className="text-sm text-amber-700">
-                    Group sessions are only available with a Pro subscription.
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-
           <div className="space-y-2">
             <Button
               onClick={joinSession}
-              disabled={joining || !isPro || !inviteData.can_join || inviteData.is_full}
+              disabled={joining || !inviteData.can_join || inviteData.is_full}
               className="w-full"
             >
               {joining ? 'Joining...' : 'Join Session'}
             </Button>
-            
-            {!isPro && (
-              <Button
-                variant="outline"
-                onClick={() => router.push('/dashboard/settings')}
-                className="w-full"
-              >
-                Upgrade to Pro
-              </Button>
-            )}
           </div>
 
           <div className="text-center">
@@ -361,6 +379,7 @@ export default function JoinSessionPage() {
           </div>
         </CardContent>
       </Card>
+      </div>
     </div>
   );
 }

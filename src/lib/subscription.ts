@@ -8,12 +8,15 @@ export async function getUserSubscription(): Promise<{ user: User | null; isPro:
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     
     if (authError) {
-      console.error('Authentication error in getUserSubscription:', authError);
+      // Don't log errors for missing sessions - this is expected on public routes
+      if (authError.name !== 'AuthSessionMissingError') {
+        console.error('Authentication error in getUserSubscription:', authError);
+      }
       return { user: null, isPro: false, isAdmin: false };
     }
     
     if (!user || !user.id) {
-      console.error('No user or user ID found in getUserSubscription');
+      // Silent return - no session is expected on public routes
       return { user: null, isPro: false, isAdmin: false };
     }
 
