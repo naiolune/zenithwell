@@ -344,6 +344,12 @@ export default function GroupSessionPage() {
           full_name: p.full_name || (p.user_id === user.id ? 'You' : 'Member'),
         }));
         setParticipants(formattedParticipants);
+        
+        // Update isReady state based on current user's ready status
+        const currentUserParticipant = formattedParticipants.find(p => p.user_id === user.id);
+        if (currentUserParticipant) {
+          setIsReady(currentUserParticipant.is_ready || false);
+        }
       } else {
         console.error('Error fetching participants:', await response.text());
         // Fallback: try direct query (might fail due to RLS)
@@ -718,11 +724,23 @@ export default function GroupSessionPage() {
                   Waiting room: {readyParticipants} of {participants.length} {participants.length === 1 ? 'participant' : 'participants'} ready
                 </span>
               </div>
-              {isOwner && allParticipantsReady && (
-                <Button size="sm" onClick={startSession} className="bg-amber-600 hover:bg-amber-700">
-                  Start session
-                </Button>
-              )}
+              <div className="flex items-center gap-2">
+                {!isOwner && (
+                  <Button 
+                    size="sm" 
+                    onClick={markAsReady} 
+                    variant={isReady ? "default" : "outline"}
+                    className={isReady ? "bg-green-600 hover:bg-green-700" : "border-amber-600 text-amber-200 hover:bg-amber-800/40"}
+                  >
+                    {isReady ? 'Ready ?' : 'Mark Ready'}
+                  </Button>
+                )}
+                {isOwner && allParticipantsReady && (
+                  <Button size="sm" onClick={startSession} className="bg-amber-600 hover:bg-amber-700">
+                    Start session
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
         )}
