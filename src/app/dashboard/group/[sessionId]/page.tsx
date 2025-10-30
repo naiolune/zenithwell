@@ -112,11 +112,12 @@ export default function GroupSessionPage() {
       .maybeSingle();
 
     // Check if user is the owner of this session
+    // Use maybeSingle() to handle RLS blocking for participants
     const { data: session } = await supabase
       .from('therapy_sessions')
       .select('user_id, is_group, session_type')
       .eq('session_id', sessionId)
-      .single();
+      .maybeSingle();
 
     if (session) {
       if (!session.is_group && session.session_type !== 'group') {
@@ -218,18 +219,41 @@ export default function GroupSessionPage() {
   };
 
   const fetchSessionData = async () => {
+    // Use maybeSingle() to handle RLS blocking for participants
+    // Participants who joined via invite may not have access to therapy_sessions
     const { data, error } = await supabase
       .from('therapy_sessions')
       .select('*')
       .eq('session_id', sessionId)
-      .single();
+      .maybeSingle();
 
     if (error) {
+      // Log error but don't block - participants can still use the session
       console.error('Error fetching session data:', error);
+      // Set minimal session data for participants
+      setSessionData({
+        session_id: sessionId,
+        title: 'Group Wellness Session',
+        group_category: 'general',
+        session_status: 'active',
+        user_id: ''
+      } as SessionData);
       return;
     }
 
-    setSessionData(data);
+    if (data) {
+      setSessionData(data);
+    } else {
+      // Session data not accessible (likely RLS block for participant)
+      // Set minimal session data so the page can still function
+      setSessionData({
+        session_id: sessionId,
+        title: 'Group Wellness Session',
+        group_category: 'general',
+        session_status: 'active',
+        user_id: ''
+      } as SessionData);
+    }
   };
 
   const fetchParticipants = async () => {
