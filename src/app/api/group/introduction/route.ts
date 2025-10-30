@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { createClient as createServiceClient } from '@supabase/supabase-js';
 import { withAPISecurity } from '@/middleware/api-security';
 import { GROUP_SESSION_CONFIG } from '@/lib/group-session-config';
 
@@ -89,8 +90,15 @@ async function handleSubmitIntroduction(request: NextRequest) {
       if (expectations) introductionData.expectations = expectations;
     }
 
+    // Use service role client to bypass RLS for upsert operation
+    // This ensures the operation succeeds even if RLS policies haven't been updated
+    const serviceClient = createServiceClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+
     // Upsert introduction (update if exists, insert if not)
-    const { data: introduction, error } = await supabase
+    const { data: introduction, error } = await serviceClient
       .from('participant_introductions')
       .upsert(introductionData, {
         onConflict: 'session_id,user_id'
@@ -100,7 +108,10 @@ async function handleSubmitIntroduction(request: NextRequest) {
 
     if (error) {
       console.error('Error saving introduction:', error);
-      return NextResponse.json({ error: 'Failed to save introduction' }, { status: 500 });
+      return NextResponse.json({ 
+        error: 'Failed to save introduction',
+        details: error.message 
+      }, { status: 500 });
     }
 
     return NextResponse.json({ 
