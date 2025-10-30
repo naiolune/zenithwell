@@ -104,11 +104,22 @@ export default function GroupSessionPage() {
     setCurrentUserId(user.id);
 
     // Check if user is a participant in this session (via invite or as owner)
+    // Note: RLS might block this read for participants, so we'll also check for valid invites
     const { data: participant } = await supabase
       .from('session_participants')
       .select('user_id')
       .eq('session_id', sessionId)
       .eq('user_id', user.id)
+      .maybeSingle();
+
+    // Check if there's a valid invite for this session (for participants who joined via invite)
+    // This allows access even if RLS blocks reading session_participants
+    const { data: invite } = await supabase
+      .from('session_invites')
+      .select('id, expires_at, is_active')
+      .eq('session_id', sessionId)
+      .eq('is_active', true)
+      .gt('expires_at', new Date().toISOString())
       .maybeSingle();
 
     // Check if user is the owner of this session
@@ -143,21 +154,22 @@ export default function GroupSessionPage() {
         const { isPro } = await getUserSubscription();
         setIsPro(isPro);
         
-        // If user is not a participant and not the owner, redirect
-        if (!participant) {
+        // If user is not a participant and there's no valid invite, redirect
+        // Allow access if either: participant exists OR valid invite exists
+        if (!participant && !invite) {
           router.push('/dashboard/group');
           return;
         }
       }
     } else {
-      // Session doesn't exist or user can't access it
-      // Check if they're a participant (might be a valid invite scenario)
-      if (!participant) {
+      // Session doesn't exist or user can't access it (RLS blocking)
+      // Allow access if user is a participant OR there's a valid invite
+      if (!participant && !invite) {
         router.push('/dashboard/group');
         return;
       }
       
-      // User is a participant, allow access
+      // User is a participant or has valid invite, allow access
       const { isPro } = await getUserSubscription();
       setIsPro(isPro);
     }
