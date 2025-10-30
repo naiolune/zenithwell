@@ -65,25 +65,31 @@ async function handleGetParticipants(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to fetch participants' }, { status: 500 });
     }
 
-    // Get presence data if available
+    // Get presence data if available (using participant_presence table)
     const { data: presenceData } = await serviceClient
-      .from('group_presence')
-      .select('user_id, is_online, is_away, last_heartbeat, presence_status')
+      .from('participant_presence')
+      .select('user_id, is_online, last_heartbeat')
       .eq('session_id', sessionId)
       .in('user_id', participants?.map(p => p.user_id) || []);
 
     // Format participants for the frontend
     const formattedParticipants = participants?.map(p => {
       const presence = presenceData?.find(pr => pr.user_id === p.user_id);
+      const lastHeartbeat = presence?.last_heartbeat ? new Date(presence.last_heartbeat) : null;
+      const now = new Date();
+      const diffMs = lastHeartbeat ? now.getTime() - lastHeartbeat.getTime() : Infinity;
+      const isOnline = presence?.is_online || false;
+      const isAway = !isOnline && diffMs < 60000; // Away if offline but heartbeat was recent
+      
       return {
         user_id: p.user_id,
         email: '', // Will be populated by frontend if needed
         full_name: p.user_id === user.id ? 'You' : 'Member',
         is_ready: p.is_ready || false,
-        is_online: presence?.is_online || false,
-        is_away: presence?.is_away || false,
+        is_online: isOnline,
+        is_away: isAway,
         last_heartbeat: presence?.last_heartbeat || '',
-        presence_status: presence?.presence_status || 'unknown'
+        presence_status: isOnline ? 'online' : isAway ? 'away' : 'offline'
       };
     }) || [];
 
