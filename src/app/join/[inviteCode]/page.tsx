@@ -169,39 +169,37 @@ export default function JoinSessionPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // Map camelCase form fields to snake_case database fields
-      const dbData: any = {
-        session_id: inviteData!.session_id,
-        user_id: user.id,
-        group_category: inviteData!.group_category
-      };
+      // Submit introduction via API route (handles RLS properly)
+      const response = await fetch('/api/group/introduction', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          sessionId: inviteData!.session_id,
+          groupCategory: inviteData!.group_category,
+          // Relationship fields
+          relationshipRole: introductionData.relationshipRole,
+          whyWellness: introductionData.whyWellness,
+          goals: introductionData.goals,
+          challenges: introductionData.challenges,
+          // Family fields
+          familyRole: introductionData.familyRole,
+          familyGoals: introductionData.familyGoals,
+          whatToAchieve: introductionData.whatToAchieve,
+          // General fields
+          participantRole: introductionData.participantRole,
+          wellnessReason: introductionData.wellnessReason,
+          personalGoals: introductionData.personalGoals,
+          expectations: introductionData.expectations
+        })
+      });
 
-      // Map fields based on group category
-      if (inviteData!.group_category === GROUP_SESSION_CONFIG.GROUP_CATEGORIES.RELATIONSHIP) {
-        if (introductionData.relationshipRole) dbData.relationship_role = introductionData.relationshipRole;
-        if (introductionData.whyWellness) dbData.why_wellness = introductionData.whyWellness;
-        if (introductionData.goals) dbData.goals = introductionData.goals;
-        if (introductionData.challenges) dbData.challenges = introductionData.challenges;
-      } else if (inviteData!.group_category === GROUP_SESSION_CONFIG.GROUP_CATEGORIES.FAMILY) {
-        if (introductionData.familyRole) dbData.family_role = introductionData.familyRole;
-        if (introductionData.whyWellness) dbData.why_wellness = introductionData.whyWellness;
-        if (introductionData.familyGoals) dbData.family_goals = introductionData.familyGoals;
-        if (introductionData.whatToAchieve) dbData.what_to_achieve = introductionData.whatToAchieve;
-      } else if (inviteData!.group_category === GROUP_SESSION_CONFIG.GROUP_CATEGORIES.GENERAL) {
-        if (introductionData.participantRole) dbData.participant_role = introductionData.participantRole;
-        if (introductionData.wellnessReason) dbData.wellness_reason = introductionData.wellnessReason;
-        if (introductionData.personalGoals) dbData.personal_goals = introductionData.personalGoals;
-        if (introductionData.expectations) dbData.expectations = introductionData.expectations;
-      }
+      const data = await response.json();
 
-      // Submit introduction
-      const { error: introError } = await supabase
-        .from('participant_introductions')
-        .insert(dbData);
-
-      if (introError) {
-        console.error('Error saving introduction:', introError);
-        alert('Failed to save introduction. Please try again.');
+      if (!response.ok) {
+        console.error('Error saving introduction:', data);
+        alert(data.error || 'Failed to save introduction. Please try again.');
         return;
       }
 
@@ -234,7 +232,7 @@ export default function JoinSessionPage() {
 
   if (loading) {
     return (
-      <div className="fixed inset-0 bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center">
+      <div className="min-h-screen w-full bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
       </div>
     );
@@ -242,8 +240,7 @@ export default function JoinSessionPage() {
 
   if (!inviteData) {
     return (
-      <div className="fixed inset-0 bg-gradient-to-br from-blue-50 via-white to-purple-50 overflow-y-auto">
-        <div className="min-h-screen flex items-center justify-center p-4">
+      <div className="min-h-screen w-full bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center p-4">
         <Card className="w-full max-w-md">
           <CardHeader className="text-center">
             <div className="flex justify-center mb-4">
@@ -260,14 +257,13 @@ export default function JoinSessionPage() {
             </Button>
           </CardContent>
         </Card>
-        </div>
       </div>
     );
   }
 
   if (showIntroductionForm) {
     return (
-      <div className="fixed inset-0 bg-gradient-to-br from-blue-50 via-white to-purple-50 overflow-y-auto">
+      <div className="min-h-screen w-full bg-gradient-to-br from-blue-50 via-white to-purple-50">
         <div className="min-h-screen flex items-center justify-center p-4">
           <div className="w-full max-w-2xl">
             <IntroductionForm
@@ -283,7 +279,7 @@ export default function JoinSessionPage() {
   }
 
   return (
-    <div className="fixed inset-0 bg-gradient-to-br from-blue-50 via-white to-purple-50 overflow-y-auto">
+    <div className="min-h-screen w-full bg-gradient-to-br from-blue-50 via-white to-purple-50">
       <div className="min-h-screen flex items-center justify-center p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">

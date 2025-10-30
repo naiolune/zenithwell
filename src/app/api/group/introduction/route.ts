@@ -41,16 +41,27 @@ async function handleSubmitIntroduction(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid group category' }, { status: 400 });
     }
 
-    // Verify user is a participant in this session
+    // Verify user is a participant OR there's a valid invite for this session
     const { data: participant } = await supabase
       .from('session_participants')
       .select('user_id')
       .eq('session_id', sessionId)
       .eq('user_id', user.id)
-      .single();
+      .maybeSingle();
 
+    // If not a participant, check if there's a valid invite (for join flow)
     if (!participant) {
-      return NextResponse.json({ error: 'Not a participant in this session' }, { status: 403 });
+      const { data: invite } = await supabase
+        .from('session_invites')
+        .select('id, expires_at, is_active')
+        .eq('session_id', sessionId)
+        .eq('is_active', true)
+        .gt('expires_at', new Date().toISOString())
+        .maybeSingle();
+
+      if (!invite) {
+        return NextResponse.json({ error: 'Not a participant in this session and no valid invite found' }, { status: 403 });
+      }
     }
 
     // Prepare introduction data based on group category
