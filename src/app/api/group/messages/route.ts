@@ -116,6 +116,18 @@ async function handleGetMessages(request: NextRequest) {
                 console.log('[MESSAGES API] Successfully replaced generic intro with custom group intro');
                 // Update the message in our local array so it's returned correctly
                 firstAIMessage.content = customIntro;
+                // Refetch messages to ensure we have the latest version
+                const { data: updatedMessages } = await serviceClient
+                  .from('session_messages')
+                  .select('*')
+                  .eq('session_id', sessionId)
+                  .order('timestamp', { ascending: true });
+                
+                if (updatedMessages) {
+                  // Replace the messages array with updated one
+                  messages.length = 0;
+                  messages.push(...updatedMessages);
+                }
               } else {
                 console.error('[MESSAGES API] Error updating intro message:', updateError);
               }
