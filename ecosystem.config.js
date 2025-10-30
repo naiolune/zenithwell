@@ -9,11 +9,15 @@ module.exports = {
       exec_mode: 'fork', // Use fork mode for better log capture
       env: {
         NODE_ENV: 'production',
-        PORT: 3001
+        PORT: 3001,
+        NEXT_PUBLIC_SITE_URL: 'https://zenithwell.online',
+        SITE_URL: 'https://zenithwell.online'
       },
       env_production: {
         NODE_ENV: 'production',
-        PORT: 3001
+        PORT: 3001,
+        NEXT_PUBLIC_SITE_URL: 'https://zenithwell.online',
+        SITE_URL: 'https://zenithwell.online'
       },
       // Logging configuration - all logs go to PM2 log files, not console
       log_date_format: 'YYYY-MM-DD HH:mm:ss Z',

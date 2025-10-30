@@ -47,13 +47,14 @@ export class AuthValidator {
       // If no header or header failed, try cookie-based auth
       if (!user && request) {
         try {
+          const cookieList = request.cookies.getAll();
           const serverSupabase = createServerClient(
             process.env.NEXT_PUBLIC_SUPABASE_URL!,
             process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
             {
               cookies: {
                 getAll() {
-                  return request.cookies.getAll();
+                  return cookieList;
                 },
                 setAll() {
                   // No-op in middleware context
@@ -63,11 +64,15 @@ export class AuthValidator {
           );
           const { data: { user: cookieUser }, error: cookieError } = await serverSupabase.auth.getUser();
           
+          if (cookieError) {
+            console.error('Cookie auth error:', cookieError);
+          }
+          
           if (!cookieError && cookieUser) {
             user = cookieUser;
           }
         } catch (cookieErr) {
-          // Cookie auth failed, will fall through to error
+          console.error('Cookie auth exception:', cookieErr);
         }
       }
       

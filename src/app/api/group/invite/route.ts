@@ -1,49 +1,99 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { withAPISecurity } from '@/middleware/api-security';
+import { withAPISecurity, SecurityContext } from '@/middleware/api-security';
 import { GROUP_SESSION_CONFIG, getInviteExpirationDate } from '@/lib/group-session-config';
 
-async function handleCreateInvite(request: NextRequest) {
+async function handleCreateInvite(request: NextRequest, context: SecurityContext) {
   try {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    console.log('[INVITE] Starting invite creation handler');
     
-    if (!user) {
+    // Use authenticated user from security context (already validated by middleware)
+    if (!context.user) {
+      console.error('[INVITE] No user in context');
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-
+    
+    console.log('[INVITE] User authenticated:', { userId: context.user.id, email: context.user.email });
+    
+    const supabase = await createClient();
+    
+    // Verify Supabase client is authenticated (required for RLS policies)
+    const { data: { user: supabaseUser }, error: authError } = await supabase.auth.getUser();
+    if (authError || !supabaseUser || supabaseUser.id !== context.user.id) {
+      console.error('[INVITE] Supabase auth mismatch:', { 
+        authError: authError?.message, 
+        supabaseUserId: supabaseUser?.id, 
+        contextUserId: context.user.id 
+      });
+      return NextResponse.json({ error: 'Authentication failed' }, { status: 401 });
+    }
+    
+    console.log('[INVITE] Supabase client authenticated successfully');
+    
     const { sessionId, maxParticipants } = await request.json();
+    console.log('[INVITE] Request body:', { sessionId, maxParticipants });
     
     if (!sessionId) {
       return NextResponse.json({ error: 'Session ID is required' }, { status: 400 });
     }
 
     // Verify user is the session owner (first participant)
-    const { data: sessionOwner } = await supabase
+    console.log('[INVITE] Checking session ownership for session:', sessionId);
+    const { data: sessionOwner, error: ownerError } = await supabase
       .from('session_participants')
-      .select('user_id, created_at')
+      .select('user_id, joined_at')
       .eq('session_id', sessionId)
-      .order('created_at', { ascending: true })
+      .order('joined_at', { ascending: true })
       .limit(1)
       .single();
 
-    if (!sessionOwner || sessionOwner.user_id !== user.id) {
+    if (ownerError) {
+      console.error('[INVITE] Error checking session ownership:', {
+        error: ownerError.message,
+        code: ownerError.code,
+        details: ownerError.details,
+        hint: ownerError.hint,
+        sessionId
+      });
+      return NextResponse.json({ error: 'Failed to verify session ownership' }, { status: 500 });
+    }
+
+    console.log('[INVITE] Session owner check result:', {
+      found: !!sessionOwner,
+      ownerUserId: sessionOwner?.user_id,
+      contextUserId: context.user.id,
+      match: sessionOwner?.user_id === context.user.id
+    });
+
+    if (!sessionOwner || sessionOwner.user_id !== context.user.id) {
+      console.error('[INVITE] User is not session owner', {
+        sessionId,
+        contextUserId: context.user.id,
+        ownerUserId: sessionOwner?.user_id
+      });
       return NextResponse.json({ error: 'Only session owner can create invites' }, { status: 403 });
     }
+    
+    console.log('[INVITE] User is confirmed as session owner');
 
     // Check if there's already an active invite
     const { data: existingInvite } = await supabase
       .from('session_invites')
-      .select('id, invite_code, expires_at')
+      .select('id, invite_code, expires_at, max_participants')
       .eq('session_id', sessionId)
       .eq('is_active', true)
       .gt('expires_at', new Date().toISOString())
       .single();
 
     if (existingInvite) {
+      // Hardcoded site URL
+      const inviteUrl = `https://zenithwell.online/join/${existingInvite.invite_code}`;
+      
       return NextResponse.json({
         invite_code: existingInvite.invite_code,
         expires_at: existingInvite.expires_at,
+        max_participants: existingInvite.max_participants,
+        invite_url: inviteUrl,
         message: 'Active invite already exists'
       });
     }
@@ -66,7 +116,7 @@ async function handleCreateInvite(request: NextRequest) {
       .insert({
         session_id: sessionId,
         invite_code: inviteCode,
-        created_by: user.id,
+        created_by: context.user.id,
         expires_at: expiresAt.toISOString(),
         max_participants: maxParticipants || GROUP_SESSION_CONFIG.MAX_PARTICIPANTS_PER_SESSION,
         is_active: true
@@ -79,19 +129,25 @@ async function handleCreateInvite(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to create invite' }, { status: 500 });
     }
 
+    // Hardcoded site URL
+    const inviteUrl = `https://zenithwell.online/join/${invite.invite_code}`;
+    
     return NextResponse.json({
       invite_code: invite.invite_code,
       expires_at: invite.expires_at,
       max_participants: invite.max_participants,
-      invite_url: `${process.env.NEXT_PUBLIC_SITE_URL}/join/${invite.invite_code}`
+      invite_url: inviteUrl
     });
   } catch (error) {
-    console.error('Create invite error:', error);
+    console.error('[INVITE] Create invite error:', {
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined
+    });
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
 
-async function handleValidateInvite(request: NextRequest) {
+async function handleValidateInvite(request: NextRequest, context: SecurityContext) {
   try {
     const supabase = await createClient();
     const { searchParams } = new URL(request.url);
@@ -101,39 +157,44 @@ async function handleValidateInvite(request: NextRequest) {
       return NextResponse.json({ error: 'Invite code is required' }, { status: 400 });
     }
 
-    // Get invite details
-    const { data: invite, error } = await supabase
+    // Get invite details - use left join in case therapy_sessions data isn't available
+    // First get the invite
+    const { data: invite, error: inviteError } = await supabase
       .from('session_invites')
       .select(`
         id,
         session_id,
+        invite_code,
         expires_at,
         max_participants,
-        is_active,
-        therapy_sessions!inner(
-          session_id,
-          title,
-          group_category,
-          session_status
-        )
+        is_active
       `)
-      .eq('invite_code', inviteCode)
+      .eq('invite_code', inviteCode.toUpperCase())
+      .eq('is_active', true)
       .single();
 
-    if (error || !invite) {
+    if (inviteError || !invite) {
+      console.error('[INVITE] Validate invite error:', {
+        error: inviteError?.message,
+        code: inviteError?.code,
+        details: inviteError?.details,
+        inviteCode: inviteCode
+      });
       return NextResponse.json({ error: 'Invalid invite code' }, { status: 404 });
     }
+
+    // Then get the therapy session details separately
+    const { data: therapySession, error: sessionError } = await supabase
+      .from('therapy_sessions')
+      .select('session_id, title, group_category, session_status')
+      .eq('session_id', invite.session_id)
+      .single();
 
     // Check if invite is expired
     const now = new Date();
     const expiresAt = new Date(invite.expires_at);
     if (now > expiresAt) {
       return NextResponse.json({ error: 'Invite has expired' }, { status: 410 });
-    }
-
-    // Check if invite is active
-    if (!invite.is_active) {
-      return NextResponse.json({ error: 'Invite has been revoked' }, { status: 410 });
     }
 
     // Get current participant count
@@ -149,19 +210,17 @@ async function handleValidateInvite(request: NextRequest) {
 
     const currentParticipants = participants?.length || 0;
     const isFull = currentParticipants >= invite.max_participants;
-
-    const therapySession = Array.isArray(invite.therapy_sessions) ? invite.therapy_sessions[0] : invite.therapy_sessions;
     
     return NextResponse.json({
       session_id: invite.session_id,
-      title: therapySession?.title,
-      group_category: therapySession?.group_category,
-      session_status: therapySession?.session_status,
+      title: therapySession?.title || 'Group Wellness Session',
+      group_category: therapySession?.group_category || 'general',
+      session_status: therapySession?.session_status || 'waiting',
       expires_at: invite.expires_at,
       max_participants: invite.max_participants,
       current_participants: currentParticipants,
       is_full: isFull,
-      can_join: !isFull && therapySession?.session_status === 'waiting'
+      can_join: !isFull && (therapySession?.session_status === 'waiting' || !therapySession)
     });
   } catch (error) {
     console.error('Validate invite error:', error);
@@ -169,15 +228,22 @@ async function handleValidateInvite(request: NextRequest) {
   }
 }
 
-async function handleRevokeInvite(request: NextRequest) {
+async function handleRevokeInvite(request: NextRequest, context: SecurityContext) {
   try {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    
-    if (!user) {
+    // Use authenticated user from security context (already validated by middleware)
+    if (!context.user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-
+    
+    const supabase = await createClient();
+    
+    // Verify Supabase client is authenticated (required for RLS policies)
+    const { data: { user: supabaseUser }, error: authError } = await supabase.auth.getUser();
+    if (authError || !supabaseUser || supabaseUser.id !== context.user.id) {
+      console.error('Supabase auth mismatch:', { authError, supabaseUserId: supabaseUser?.id, contextUserId: context.user.id });
+      return NextResponse.json({ error: 'Authentication failed' }, { status: 401 });
+    }
+    
     const { sessionId } = await request.json();
     
     if (!sessionId) {
@@ -185,15 +251,20 @@ async function handleRevokeInvite(request: NextRequest) {
     }
 
     // Verify user is the session owner
-    const { data: sessionOwner } = await supabase
+    const { data: sessionOwner, error: ownerError } = await supabase
       .from('session_participants')
-      .select('user_id, created_at')
+      .select('user_id, joined_at')
       .eq('session_id', sessionId)
-      .order('created_at', { ascending: true })
+      .order('joined_at', { ascending: true })
       .limit(1)
       .single();
 
-    if (!sessionOwner || sessionOwner.user_id !== user.id) {
+    if (ownerError) {
+      console.error('Error checking session ownership:', ownerError);
+      return NextResponse.json({ error: 'Failed to verify session ownership' }, { status: 500 });
+    }
+
+    if (!sessionOwner || sessionOwner.user_id !== context.user.id) {
       return NextResponse.json({ error: 'Only session owner can revoke invites' }, { status: 403 });
     }
 
