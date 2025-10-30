@@ -324,27 +324,47 @@ export default function GroupSessionPage() {
 
   const fetchParticipants = async () => {
     try {
-      // Load from session_participants only (no RPC, no users join) to avoid 404/400
-      const { data: spRows, error: spErr } = await supabase
-        .from('session_participants')
-        .select('user_id, is_ready')
-        .eq('session_id', sessionId);
-      if (spErr) {
-        console.error('Error loading participants:', spErr);
-        return;
-      }
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
 
-      const list: Participant[] = (spRows || []).map(r => ({
-        user_id: r.user_id,
-        email: '',
-        full_name: r.user_id === currentUserId ? 'You' : 'Member',
-        is_ready: (r as any).is_ready || false,
-        is_online: r.user_id === currentUserId ? true : false,
-        is_away: false,
-        last_heartbeat: '' as any,
-        presence_status: r.user_id === currentUserId ? 'online' : 'unknown',
-      }));
-      setParticipants(list);
+      // Use API route to bypass RLS and get accurate participant data
+      const response = await fetch(`/api/group/participants?sessionId=${sessionId}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        // Update participant names based on current user
+        const formattedParticipants: Participant[] = (data.participants || []).map((p: any) => ({
+          ...p,
+          full_name: p.user_id === currentUserId ? 'You' : p.full_name || 'Member',
+          is_online: p.user_id === currentUserId ? true : p.is_online || false,
+        }));
+        setParticipants(formattedParticipants);
+      } else {
+        console.error('Error fetching participants:', await response.text());
+        // Fallback: try direct query (might fail due to RLS)
+        const { data: spRows, error: spErr } = await supabase
+          .from('session_participants')
+          .select('user_id, is_ready')
+          .eq('session_id', sessionId);
+        if (!spErr && spRows) {
+          const list: Participant[] = spRows.map(r => ({
+            user_id: r.user_id,
+            email: '',
+            full_name: r.user_id === currentUserId ? 'You' : 'Member',
+            is_ready: (r as any).is_ready || false,
+            is_online: r.user_id === currentUserId ? true : false,
+            is_away: false,
+            last_heartbeat: '' as any,
+            presence_status: r.user_id === currentUserId ? 'online' : 'unknown',
+          }));
+          setParticipants(list);
+        }
+      }
     } catch (e) {
       console.error('fetchParticipants error:', e);
     }

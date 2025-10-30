@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server';
 import { createClient as createServiceClient } from '@supabase/supabase-js';
 import { withAPISecurity } from '@/middleware/api-security';
 
-async function handleGetMessages(request: NextRequest) {
+async function handleGetParticipants(request: NextRequest) {
   try {
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
@@ -45,45 +45,56 @@ async function handleGetMessages(request: NextRequest) {
         .maybeSingle();
 
       if (!invite) {
-        return NextResponse.json({ error: 'Not authorized to view messages' }, { status: 403 });
+        return NextResponse.json({ error: 'Not authorized to view participants' }, { status: 403 });
       }
     }
 
-    // Use service role client to bypass RLS and fetch messages
+    // Use service role client to bypass RLS and fetch participants
     const serviceClient = createServiceClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
-    const { data: messages, error } = await serviceClient
-      .from('session_messages')
-      .select('*')
-      .eq('session_id', sessionId)
-      .order('timestamp', { ascending: true });
+    const { data: participants, error } = await serviceClient
+      .from('session_participants')
+      .select('user_id, is_ready, role')
+      .eq('session_id', sessionId);
 
     if (error) {
-      console.error('Error fetching messages:', error);
-      return NextResponse.json({ error: 'Failed to fetch messages' }, { status: 500 });
+      console.error('Error fetching participants:', error);
+      return NextResponse.json({ error: 'Failed to fetch participants' }, { status: 500 });
     }
 
-    // Format messages for the frontend
-    const formattedMessages = messages?.map(msg => ({
-      id: msg.id,
-      session_id: msg.session_id,
-      sender: msg.sender_type === 'user' ? 'user' : 'ai',
-      content: msg.content,
-      timestamp: new Date(msg.timestamp),
-      status: 'sent' as const
-    })) || [];
+    // Get presence data if available
+    const { data: presenceData } = await serviceClient
+      .from('group_presence')
+      .select('user_id, is_online, is_away, last_heartbeat, presence_status')
+      .eq('session_id', sessionId)
+      .in('user_id', participants?.map(p => p.user_id) || []);
 
-    return NextResponse.json({ messages: formattedMessages });
+    // Format participants for the frontend
+    const formattedParticipants = participants?.map(p => {
+      const presence = presenceData?.find(pr => pr.user_id === p.user_id);
+      return {
+        user_id: p.user_id,
+        email: '', // Will be populated by frontend if needed
+        full_name: p.user_id === user.id ? 'You' : 'Member',
+        is_ready: p.is_ready || false,
+        is_online: presence?.is_online || false,
+        is_away: presence?.is_away || false,
+        last_heartbeat: presence?.last_heartbeat || '',
+        presence_status: presence?.presence_status || 'unknown'
+      };
+    }) || [];
+
+    return NextResponse.json({ participants: formattedParticipants });
   } catch (error) {
-    console.error('Get messages error:', error);
+    console.error('Get participants error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
 
-export const GET = withAPISecurity(handleGetMessages, {
+export const GET = withAPISecurity(handleGetParticipants, {
   requireAuth: true,
   rateLimitType: 'general_api',
   requireCSRF: false,
