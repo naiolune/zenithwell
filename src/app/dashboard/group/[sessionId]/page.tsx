@@ -182,13 +182,26 @@ export default function GroupSessionPage() {
       }
 
       if (!existing) {
-        const { error: insErr } = await supabase
-          .from('session_participants')
-          .insert({ session_id: sessionId, user_id: user.id, role: 'member', is_ready: false });
-        if (insErr) {
-          console.error('Error adding participant:', insErr);
-        } else {
-          fetchParticipants();
+        // Use API route instead of direct insert to avoid RLS infinite recursion
+        try {
+          const response = await fetch('/api/group/join', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              sessionId: sessionId
+            })
+          });
+
+          if (response.ok) {
+            fetchParticipants();
+          } else {
+            const data = await response.json();
+            console.error('Error adding participant via API:', data);
+          }
+        } catch (apiErr) {
+          console.error('Error calling join API:', apiErr);
         }
       }
     } catch (e) {
