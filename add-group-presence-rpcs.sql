@@ -9,10 +9,8 @@ BEGIN
       AND tablename = 'participant_presence' 
       AND policyname = 'Users can insert their own presence'
   ) THEN
-    EXECUTE $$
-      CREATE POLICY "Users can insert their own presence" ON public.participant_presence
-        FOR INSERT WITH CHECK (auth.uid() = user_id);
-    $$;
+    CREATE POLICY "Users can insert their own presence" ON public.participant_presence
+      FOR INSERT WITH CHECK (auth.uid() = user_id);
   END IF;
 END $$;
 

@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Copy, RefreshCw, QrCode, Users, Clock, Shield } from 'lucide-react';
 import { toast } from 'sonner';
+import { createClient } from '@/lib/supabase/client';
 
 interface ShareLinkDialogProps {
   sessionId: string;
@@ -36,6 +37,7 @@ export function ShareLinkDialog({
   const [inviteData, setInviteData] = useState<InviteData | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [timeLeft, setTimeLeft] = useState<string>('');
+  const supabase = createClient();
 
   // Calculate time remaining
   useEffect(() => {
@@ -73,10 +75,12 @@ export function ShareLinkDialog({
   const createInvite = async () => {
     setIsLoading(true);
     try {
+      const { data: { session } } = await supabase.auth.getSession();
       const response = await fetch('/api/group/invite', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...(session?.access_token ? { 'Authorization': `Bearer ${session.access_token}` } : {}),
         },
         body: JSON.stringify({
           sessionId,
@@ -101,10 +105,12 @@ export function ShareLinkDialog({
   const revokeInvite = async () => {
     setIsLoading(true);
     try {
+      const { data: { session } } = await supabase.auth.getSession();
       const response = await fetch('/api/group/invite', {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',
+          ...(session?.access_token ? { 'Authorization': `Bearer ${session.access_token}` } : {}),
         },
         body: JSON.stringify({ sessionId }),
       });
@@ -125,7 +131,17 @@ export function ShareLinkDialog({
 
   const copyToClipboard = async (text: string) => {
     try {
-      await navigator.clipboard.writeText(text);
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        // Fallback for non-HTTPS
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+      }
       toast.success('Copied to clipboard');
     } catch (error) {
       console.error('Failed to copy:', error);

@@ -218,15 +218,18 @@ async function handleRevokeInvite(request: NextRequest) {
 
 export const POST = withAPISecurity(handleCreateInvite, {
   requireAuth: true,
-  rateLimitType: 'general_api'
+  rateLimitType: 'general_api',
+  requireCSRF: false,
 });
 
 export const GET = withAPISecurity(handleValidateInvite, {
   requireAuth: false, // Allow unauthenticated users to validate invites
-  rateLimitType: 'general_api'
+  rateLimitType: 'general_api',
+  requireCSRF: false,
 });
 
 export const DELETE = withAPISecurity(handleRevokeInvite, {
   requireAuth: true,
-  rateLimitType: 'general_api'
+  rateLimitType: 'general_api',
+  requireCSRF: false,
 });
