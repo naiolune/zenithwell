@@ -729,10 +729,10 @@ export default function GroupSessionPage() {
                   <Button 
                     size="sm" 
                     onClick={markAsReady} 
-                    variant={isReady ? "default" : "outline"}
-                    className={isReady ? "bg-green-600 hover:bg-green-700" : "border-amber-600 text-amber-200 hover:bg-amber-800/40"}
+                    variant={isReady ✓ "default" : "outline"}
+                    className={isReady ✓ "bg-green-600 hover:bg-green-700" : "border-amber-600 text-amber-200 hover:bg-amber-800/40"}
                   >
-                    {isReady ? 'Ready ?' : 'Mark Ready'}
+                    {isReady ✓ 'Ready ✓' : 'Mark Ready'}
                   </Button>
                 )}
                 {isOwner && allParticipantsReady && (
