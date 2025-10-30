@@ -6,16 +6,13 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { 
-  Brain, 
   Users, 
   Clock, 
   Shield, 
-  CheckCircle2, 
   XCircle, 
   Sparkles,
   ArrowRight,
   Calendar,
-  UserPlus,
   Crown
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
@@ -227,21 +224,39 @@ export default function JoinSessionPage() {
     }
   };
 
+  const getCategoryDisplay = (category: GroupCategory): string => {
+    const categoryMap = {
+      [GROUP_SESSION_CONFIG.GROUP_CATEGORIES.RELATIONSHIP]: 'Relationship',
+      [GROUP_SESSION_CONFIG.GROUP_CATEGORIES.FAMILY]: 'Family',
+      [GROUP_SESSION_CONFIG.GROUP_CATEGORIES.GENERAL]: 'General'
+    };
+    return categoryMap[category] || 'General';
+  };
+
   const getCategoryBadge = (category: GroupCategory) => {
     const badges = {
-      relationship: { label: 'Relationship', color: 'bg-pink-100 text-pink-800 border-pink-200' },
-      family: { label: 'Family', color: 'bg-blue-100 text-blue-800 border-blue-200' },
-      general: { label: 'General', color: 'bg-purple-100 text-purple-800 border-purple-200' }
+      [GROUP_SESSION_CONFIG.GROUP_CATEGORIES.RELATIONSHIP]: { 
+        label: 'Relationship', 
+        color: 'bg-pink-100 text-pink-800 border-pink-200' 
+      },
+      [GROUP_SESSION_CONFIG.GROUP_CATEGORIES.FAMILY]: { 
+        label: 'Family', 
+        color: 'bg-blue-100 text-blue-800 border-blue-200' 
+      },
+      [GROUP_SESSION_CONFIG.GROUP_CATEGORIES.GENERAL]: { 
+        label: 'General', 
+        color: 'bg-purple-100 text-purple-800 border-purple-200' 
+      }
     };
-    return badges[category] || badges.general;
+    return badges[category] || badges[GROUP_SESSION_CONFIG.GROUP_CATEGORIES.GENERAL];
   };
 
   if (loading) {
     return (
-      <div className="min-h-screen w-full bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex items-center justify-center">
+      <div className="min-h-screen w-full bg-gradient-to-br from-indigo-900 via-purple-900 to-indigo-800 flex items-center justify-center">
         <div className="text-center space-y-4">
-          <div className="animate-spin rounded-full h-16 w-16 border-4 border-indigo-600 border-t-transparent mx-auto"></div>
-          <p className="text-indigo-600 font-medium">Loading invite details...</p>
+          <div className="animate-spin rounded-full h-16 w-16 border-4 border-white border-t-transparent mx-auto"></div>
+          <p className="text-white font-medium text-lg">Loading invite details...</p>
         </div>
       </div>
     );
@@ -249,8 +264,8 @@ export default function JoinSessionPage() {
 
   if (!inviteData) {
     return (
-      <div className="min-h-screen w-full bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex items-center justify-center p-4">
-        <Card className="w-full max-w-md border-2 border-red-200 shadow-lg">
+      <div className="min-h-screen w-full bg-gradient-to-br from-indigo-900 via-purple-900 to-indigo-800 flex items-center justify-center p-4">
+        <Card className="w-full max-w-md border-2 border-red-300 shadow-2xl bg-white">
           <CardHeader className="text-center pb-4">
             <div className="flex justify-center mb-4">
               <div className="rounded-full bg-red-100 p-4">
@@ -277,40 +292,45 @@ export default function JoinSessionPage() {
 
   if (showIntroductionForm) {
     return (
-      <div className="min-h-screen w-full bg-gradient-to-br from-indigo-50 via-white to-purple-50 py-8 px-4">
+      <div className="min-h-screen w-full bg-gradient-to-br from-indigo-900 via-purple-900 to-indigo-800 py-8 px-4">
         <div className="max-w-3xl mx-auto">
           <div className="mb-6 text-center">
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">Welcome to the Session</h1>
-            <p className="text-gray-600">Please introduce yourself to help create a meaningful experience</p>
+            <h1 className="text-3xl font-bold text-white mb-2">Welcome to the Session</h1>
+            <p className="text-indigo-200">Please introduce yourself to help create a meaningful experience</p>
           </div>
-          <IntroductionForm
-            groupCategory={inviteData.group_category}
-            sessionId={inviteData.session_id}
-            onSubmit={handleIntroductionSubmit}
-            isLoading={isSubmittingIntroduction}
-          />
+          <Card className="bg-white shadow-2xl">
+            <CardContent className="p-6">
+              <IntroductionForm
+                groupCategory={inviteData.group_category}
+                sessionId={inviteData.session_id}
+                onSubmit={handleIntroductionSubmit}
+                isLoading={isSubmittingIntroduction}
+              />
+            </CardContent>
+          </Card>
         </div>
       </div>
     );
   }
 
   const badge = getCategoryBadge(inviteData.group_category);
+  const categoryDisplay = getCategoryDisplay(inviteData.group_category);
   const isExpired = new Date(inviteData.expires_at) < new Date();
 
   return (
-    <div className="min-h-screen w-full bg-gradient-to-br from-indigo-50 via-white to-purple-50 py-12 px-4">
+    <div className="min-h-screen w-full bg-gradient-to-br from-indigo-900 via-purple-900 to-indigo-800 py-12 px-4">
       <div className="max-w-2xl mx-auto">
         {/* Header */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-indigo-100 mb-4">
-            <Sparkles className="h-10 w-10 text-indigo-600" />
+          <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-white/20 backdrop-blur-sm mb-4">
+            <Sparkles className="h-10 w-10 text-white" />
           </div>
-          <h1 className="text-4xl font-bold text-gray-900 mb-3">You're Invited!</h1>
-          <p className="text-lg text-gray-600">Join a wellness session and start your journey</p>
+          <h1 className="text-4xl font-bold text-white mb-3">You're Invited!</h1>
+          <p className="text-lg text-indigo-200">Join a wellness session and start your journey</p>
         </div>
 
         {/* Main Card */}
-        <Card className="border-2 border-gray-200 shadow-xl overflow-hidden">
+        <Card className="border-2 border-white/20 shadow-2xl bg-white overflow-hidden">
           {/* Header Section */}
           <div className="bg-gradient-to-r from-indigo-600 to-purple-600 p-6 text-white">
             <div className="flex items-start justify-between mb-4">
@@ -325,8 +345,8 @@ export default function JoinSessionPage() {
               )}
             </div>
             <h2 className="text-2xl font-bold mb-2">{inviteData.title}</h2>
-            <p className="text-indigo-100 text-sm capitalize">
-              {inviteData.group_category} Wellness Session
+            <p className="text-indigo-100 text-sm">
+              {categoryDisplay} Wellness Session
             </p>
           </div>
 
