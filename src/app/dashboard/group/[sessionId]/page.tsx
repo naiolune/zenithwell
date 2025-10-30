@@ -644,7 +644,7 @@ export default function GroupSessionPage() {
         <div className="flex-1 overflow-y-auto p-4">
           <div className="space-y-2">
             <div className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">
-              Members ? {participants.length}
+              Members ({participants.length})
             </div>
             {participants.map((participant) => (
               <div key={participant.user_id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-slate-700 dark:hover:bg-slate-800 transition-colors">
@@ -714,7 +714,9 @@ export default function GroupSessionPage() {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-amber-200">
                 <Clock className="h-4 w-4" />
-                <span className="text-sm">Waiting room ? {readyParticipants}/{participants.length} ready</span>
+                <span className="text-sm">
+                  Waiting room: {readyParticipants} of {participants.length} {participants.length === 1 ? 'participant' : 'participants'} ready
+                </span>
               </div>
               {isOwner && allParticipantsReady && (
                 <Button size="sm" onClick={startSession} className="bg-amber-600 hover:bg-amber-700">
