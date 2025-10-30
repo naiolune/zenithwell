@@ -71,20 +71,49 @@ async function handleGetParticipants(request: NextRequest) {
 
     // Get user data for all participants
     const userIds = participants.map(p => p.user_id);
+    
+    // Get basic user info from public.users table
     const { data: userData, error: userError } = await serviceClient
       .from('users')
-      .select('user_id, email, full_name')
+      .select('user_id, email')
       .in('user_id', userIds);
 
     if (userError) {
       console.error('Error fetching user data:', userError);
     }
 
-    // Create a map of user_id to user data for quick lookup
+    // Get user metadata (including full_name) from auth.users via admin API
+    // We'll use the service role client to access auth admin functions
     const userMap = new Map();
+    
+    // First, add basic info from public.users
     userData?.forEach(u => {
-      userMap.set(u.user_id, u);
+      userMap.set(u.user_id, { email: u.email, full_name: null });
     });
+
+    // Try to get full_name from auth.users metadata for each user
+    // Note: We'll use the admin API to get user metadata
+    for (const userId of userIds) {
+      try {
+        const { data: authUser, error: authError } = await serviceClient.auth.admin.getUserById(userId);
+        if (!authError && authUser?.user) {
+          const existingUserData = userMap.get(userId) || { email: authUser.user.email || '' };
+          // Check user_metadata for full_name or name
+          const fullName = authUser.user.user_metadata?.full_name || 
+                          authUser.user.user_metadata?.name ||
+                          authUser.user.user_metadata?.display_name ||
+                          null;
+          userMap.set(userId, {
+            ...existingUserData,
+            email: existingUserData.email || authUser.user.email || '',
+            full_name: fullName
+          });
+        }
+      } catch (error) {
+        // If we can't get auth user, just use what we have from public.users
+        console.log(`Could not fetch auth user data for ${userId}:`, error);
+      }
+    }
 
     // Get presence data if available (using participant_presence table)
     const { data: presenceData } = await serviceClient
