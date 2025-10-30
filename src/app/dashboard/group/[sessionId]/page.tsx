@@ -61,6 +61,7 @@ export default function GroupSessionPage() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const realtimeChannelRef = useRef<any>(null);
   const supabase = createClient();
 
   const messageStats = useMemo(() => {
@@ -81,7 +82,9 @@ export default function GroupSessionPage() {
     markOnline(true);
     fetchParticipants();
     startHeartbeat();
-    setupRealtimeSubscription();
+    
+    // Setup real-time subscription
+    const cleanup = setupRealtimeSubscription();
 
     return () => {
       if (heartbeatIntervalRef.current) {
@@ -89,8 +92,10 @@ export default function GroupSessionPage() {
       }
       // Cleanup message timeouts
       messageTimeouts.forEach(timeout => clearTimeout(timeout));
+      // Cleanup real-time subscription
+      if (cleanup) cleanup();
     };
-  }, [sessionId, messageTimeouts]);
+  }, [sessionId]);
 
   useEffect(() => {
     scrollToBottom();
@@ -395,33 +400,103 @@ export default function GroupSessionPage() {
   };
 
   const setupRealtimeSubscription = () => {
+    // Clean up existing subscription if any
+    if (realtimeChannelRef.current) {
+      supabase.removeChannel(realtimeChannelRef.current);
+    }
+
     const channel = supabase
-      .channel(`session-${sessionId}`)
+      .channel(`session-${sessionId}`, {
+        config: {
+          broadcast: { self: true }
+        }
+      })
       .on('postgres_changes', {
         event: 'INSERT',
         schema: 'public',
         table: 'session_messages',
         filter: `session_id=eq.${sessionId}`
       }, (payload) => {
-        const newMessage = payload.new as ChatMessage;
-        setMessages(prev => [...prev, newMessage]);
+        console.log('[REALTIME] New message received:', payload);
+        const dbMessage = payload.new as any;
+        // Check if message already exists (avoid duplicates)
+        setMessages(prev => {
+          const exists = prev.some(msg => msg.id === dbMessage.message_id || msg.id === dbMessage.id);
+          if (exists) {
+            console.log('[REALTIME] Message already exists, skipping');
+            return prev;
+          }
+          
+          // Format message from database to ChatMessage format
+          const newMessage: ChatMessage = {
+            id: dbMessage.message_id || dbMessage.id,
+            session_id: dbMessage.session_id,
+            sender: dbMessage.sender_type === 'user' ? 'user' : 'ai',
+            content: dbMessage.content,
+            timestamp: new Date(dbMessage.timestamp),
+            status: 'sent'
+          };
+          
+          console.log('[REALTIME] Adding new message:', newMessage);
+          return [...prev, newMessage];
+        });
+        scrollToBottom();
+      })
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'session_messages',
+        filter: `session_id=eq.${sessionId}`
+      }, (payload) => {
+        console.log('[REALTIME] Message updated:', payload);
+        const dbMessage = payload.new as any;
+        // Update existing message (e.g., when generic intro is replaced with custom intro)
+        setMessages(prev => prev.map(msg => {
+          if (msg.id === dbMessage.message_id || msg.id === dbMessage.id) {
+            return {
+              ...msg,
+              content: dbMessage.content,
+              sender: dbMessage.sender_type === 'user' ? 'user' : 'ai',
+              timestamp: new Date(dbMessage.timestamp)
+            };
+          }
+          return msg;
+        }));
       })
       .on('postgres_changes', {
         event: 'INSERT',
         schema: 'public',
         table: 'session_participants',
         filter: `session_id=eq.${sessionId}`
-      }, () => fetchParticipants())
+      }, () => {
+        console.log('[REALTIME] Participant added');
+        fetchParticipants();
+      })
       .on('postgres_changes', {
         event: 'UPDATE',
         schema: 'public',
         table: 'session_participants',
         filter: `session_id=eq.${sessionId}`
-      }, () => fetchParticipants())
-      .subscribe();
+      }, () => {
+        console.log('[REALTIME] Participant updated');
+        fetchParticipants();
+      })
+      .subscribe((status) => {
+        console.log('[REALTIME] Subscription status:', status);
+        if (status === 'SUBSCRIBED') {
+          console.log('[REALTIME] Successfully subscribed to channel:', `session-${sessionId}`);
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('[REALTIME] Channel subscription error');
+        }
+      });
+
+    realtimeChannelRef.current = channel;
 
     return () => {
-      supabase.removeChannel(channel);
+      if (realtimeChannelRef.current) {
+        supabase.removeChannel(realtimeChannelRef.current);
+        realtimeChannelRef.current = null;
+      }
     };
   };
 
