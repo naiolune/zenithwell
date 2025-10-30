@@ -111,11 +111,16 @@ export default function GroupSessionPage() {
     // Check if user is the owner of this session
     const { data: session } = await supabase
       .from('therapy_sessions')
-      .select('user_id')
+      .select('user_id, is_group, session_type')
       .eq('session_id', sessionId)
       .single();
 
     if (session) {
+      // Route guard: if not a group session, redirect to individual chat
+      if (!session.is_group && session.session_type !== 'group') {
+        router.replace(`/dashboard/chat/${sessionId}`);
+        return;
+      }
       setIsOwner(session.user_id === user.id);
     }
   };

@@ -130,7 +130,7 @@ export default function SessionsPage() {
       });
 
       const result = await response.json();
-
+      
       if (!response.ok) {
         if (result.sessionLimitExceeded) {
           alert(result.message);
@@ -280,7 +280,12 @@ export default function SessionsPage() {
       return;
     }
 
-    router.push(`/dashboard/chat/${session.session_id}`);
+    // Route based on session kind
+    if (session.is_group || session.session_type === 'group') {
+      router.push(`/dashboard/group/${session.session_id}`);
+    } else {
+      router.push(`/dashboard/chat/${session.session_id}`);
+    }
   };
 
   const introductionLockedLabel = (session: WellnessSession) => {
@@ -326,8 +331,7 @@ export default function SessionsPage() {
               ? 'Session Limit Reached' 
               : sessions.length === 0 
                 ? 'Start Your Journey' 
-                : 'New Session'
-            }
+                : 'New Session'}
           </span>
         </Button>
       </div>
@@ -403,8 +407,7 @@ export default function SessionsPage() {
                     ? 'Introduction Session' 
                     : session.is_group 
                       ? 'Group Session' 
-                      : 'Individual Session'
-                  }
+                      : 'Individual Session'}
                 </CardDescription>
                 {introductionLockedLabel(session)}
               </CardHeader>

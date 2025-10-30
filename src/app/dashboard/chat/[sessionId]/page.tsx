@@ -182,6 +182,17 @@ export default function ChatPage() {
         throw new Error('Not authenticated');
       }
 
+      // Quick session type check to enforce correct route
+      const { data: sessionRow } = await createClient()
+        .from('therapy_sessions')
+        .select('session_type, is_group')
+        .eq('session_id', sessionId)
+        .single();
+      if (sessionRow && (sessionRow.is_group || sessionRow.session_type === 'group')) {
+        router.replace(`/dashboard/group/${sessionId}`);
+        return;
+      }
+
       // Call server-side initialization API
       const response = await fetch('/api/sessions/init', {
         method: 'POST',
