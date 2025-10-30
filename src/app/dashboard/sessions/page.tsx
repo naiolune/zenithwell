@@ -45,18 +45,64 @@ export default function SessionsPage() {
         return;
       }
 
-      const { data, error } = await supabase
+      // Fetch sessions owned by the user
+      const { data: ownedSessions, error: ownedError } = await supabase
         .from('therapy_sessions')
         .select('*')
         .eq('user_id', user.id)
         .order('last_message_at', { ascending: false });
 
-      if (error) {
-        console.error('Error fetching sessions:', error);
-      } else {
-        setSessions(data || []);
-        setSessionCount(data?.length || 0);
+      if (ownedError) {
+        console.error('Error fetching owned sessions:', ownedError);
       }
+
+      // Fetch sessions where user is a participant (for group sessions)
+      const { data: participantSessions, error: participantError } = await supabase
+        .from('session_participants')
+        .select(`
+          session_id,
+          therapy_sessions (*)
+        `)
+        .eq('user_id', user.id)
+        .neq('role', 'owner'); // Don't include if they're the owner (already in ownedSessions)
+
+      if (participantError) {
+        console.error('Error fetching participant sessions:', participantError);
+      }
+
+      // Combine owned sessions and participant sessions
+      const allSessions: WellnessSession[] = [];
+      
+      // Add owned sessions
+      if (ownedSessions) {
+        allSessions.push(...ownedSessions.map(s => ({ ...s, is_participant: false })));
+      }
+
+      // Add participant sessions (exclude duplicates)
+      if (participantSessions) {
+        const ownedSessionIds = new Set(ownedSessions?.map(s => s.session_id) || []);
+        participantSessions.forEach(ps => {
+          if (ps.therapy_sessions && !ownedSessionIds.has(ps.session_id)) {
+            // Handle both single object and array responses from Supabase
+            const sessionData = Array.isArray(ps.therapy_sessions) 
+              ? ps.therapy_sessions[0] 
+              : ps.therapy_sessions;
+            if (sessionData) {
+              allSessions.push({ ...sessionData, is_participant: true });
+            }
+          }
+        });
+      }
+
+      // Sort by last_message_at descending
+      allSessions.sort((a, b) => {
+        const dateA = new Date(a.last_message_at).getTime();
+        const dateB = new Date(b.last_message_at).getTime();
+        return dateB - dateA;
+      });
+
+      setSessions(allSessions);
+      setSessionCount(allSessions.length);
     } catch (error) {
       console.error('Error:', error);
     } finally {
@@ -377,27 +423,32 @@ export default function SessionsPage() {
                   )}
                     {editingSession !== session.session_id && (
                       <div className="flex items-center space-x-1">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => startEditing(session)}
-                          className="h-8 w-8 p-0 hover:bg-gray-100 dark:hover:bg-gray-700"
-                        >
-                          <Edit2 className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => deleteSession(session.session_id)}
-                          disabled={deletingSession === session.session_id}
-                          className="h-8 w-8 p-0 hover:bg-red-100 dark:hover:bg-red-900 text-red-600 dark:text-red-400"
-                        >
-                          {deletingSession === session.session_id ? (
-                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-600"></div>
-                          ) : (
-                            <Trash2 className="h-4 w-4" />
-                          )}
-                        </Button>
+                        {/* Only show edit/delete buttons for sessions owned by the user */}
+                        {!session.is_participant && (
+                          <>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => startEditing(session)}
+                              className="h-8 w-8 p-0 hover:bg-gray-100 dark:hover:bg-gray-700"
+                            >
+                              <Edit2 className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => deleteSession(session.session_id)}
+                              disabled={deletingSession === session.session_id}
+                              className="h-8 w-8 p-0 hover:bg-red-100 dark:hover:bg-red-900 text-red-600 dark:text-red-400"
+                            >
+                              {deletingSession === session.session_id ? (
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-600"></div>
+                              ) : (
+                                <Trash2 className="h-4 w-4" />
+                              )}
+                            </Button>
+                          </>
+                        )}
                       </div>
                     )}
                   </div>
@@ -462,9 +513,11 @@ export default function SessionsPage() {
                         ? session.is_locked
                           ? 'Introduction Completed'
                           : 'Complete Introduction'
-                        : userSubscription === 'pro'
-                          ? 'Continue Session'
-                          : 'Resume (Pro Only)'}
+                        : session.is_participant
+                          ? 'Join Session'
+                          : userSubscription === 'pro'
+                            ? 'Continue Session'
+                            : 'Resume (Pro Only)'}
                     </Button>
                   )}
                 </div>

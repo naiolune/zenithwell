@@ -34,6 +34,7 @@ export interface WellnessSession {
   locked_by?: 'ai' | 'admin';
   lock_reason?: string;
   can_unlock?: boolean;
+  is_participant?: boolean; // True if user is a participant (not owner) of this session
 }
 
 export interface SessionInsight {
