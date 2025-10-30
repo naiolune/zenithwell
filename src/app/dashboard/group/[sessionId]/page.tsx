@@ -337,11 +337,11 @@ export default function GroupSessionPage() {
 
       if (response.ok) {
         const data = await response.json();
-        // Update participant names based on current user
+        // Use the names directly from API (already formatted with first names and "You" for current user)
         const formattedParticipants: Participant[] = (data.participants || []).map((p: any) => ({
           ...p,
-          full_name: p.user_id === currentUserId ? 'You' : p.full_name || 'Member',
-          is_online: p.user_id === currentUserId ? true : p.is_online || false,
+          // Only override if the API didn't provide a name (shouldn't happen, but fallback)
+          full_name: p.full_name || (p.user_id === user.id ? 'You' : 'Member'),
         }));
         setParticipants(formattedParticipants);
       } else {

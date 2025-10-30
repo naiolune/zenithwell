@@ -107,13 +107,20 @@ async function handleGetParticipants(request: NextRequest) {
       let displayName = 'Member';
       if (p.user_id === user.id) {
         displayName = 'You';
-      } else if (userInfo?.full_name) {
-        // Extract first name (part before space) or use full name if no space
-        const firstName = userInfo.full_name.split(' ')[0];
-        displayName = firstName || userInfo.full_name;
-      } else if (userInfo?.email) {
-        // Use email username (part before @) as fallback
-        displayName = userInfo.email.split('@')[0];
+      } else if (userInfo) {
+        if (userInfo.full_name && userInfo.full_name.trim()) {
+          // Extract first name (part before space) or use full name if no space
+          const firstName = userInfo.full_name.trim().split(' ')[0];
+          displayName = firstName || userInfo.full_name.trim();
+        } else if (userInfo.email) {
+          // Use email username (part before @) as fallback
+          displayName = userInfo.email.split('@')[0];
+        }
+      }
+      
+      // Log for debugging
+      if (!userInfo || (!userInfo.full_name && !userInfo.email)) {
+        console.log(`Missing user info for participant ${p.user_id}`);
       }
       
       return {
