@@ -190,6 +190,25 @@ async function handleValidateInvite(request: NextRequest, context: SecurityConte
       .eq('session_id', invite.session_id)
       .single();
 
+    if (sessionError) {
+      console.error('[INVITE] Error fetching therapy session:', {
+        error: sessionError.message,
+        code: sessionError.code,
+        sessionId: invite.session_id
+      });
+    }
+
+    if (!therapySession) {
+      console.warn('[INVITE] Therapy session not found for session_id:', invite.session_id);
+    } else {
+      console.log('[INVITE] Therapy session found:', {
+        session_id: therapySession.session_id,
+        title: therapySession.title,
+        group_category: therapySession.group_category,
+        session_status: therapySession.session_status
+      });
+    }
+
     // Check if invite is expired
     const now = new Date();
     const expiresAt = new Date(invite.expires_at);
@@ -211,10 +230,19 @@ async function handleValidateInvite(request: NextRequest, context: SecurityConte
     const currentParticipants = participants?.length || 0;
     const isFull = currentParticipants >= invite.max_participants;
     
+    // Use the actual group_category from the session, or default to 'general' only if session doesn't exist
+    const groupCategory = therapySession?.group_category || 'general';
+    
+    console.log('[INVITE] Returning invite data:', {
+      session_id: invite.session_id,
+      group_category: groupCategory,
+      hasTherapySession: !!therapySession
+    });
+    
     return NextResponse.json({
       session_id: invite.session_id,
       title: therapySession?.title || 'Group Wellness Session',
-      group_category: therapySession?.group_category || 'general',
+      group_category: groupCategory,
       session_status: therapySession?.session_status || 'waiting',
       expires_at: invite.expires_at,
       max_participants: invite.max_participants,
