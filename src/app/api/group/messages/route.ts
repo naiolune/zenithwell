@@ -153,7 +153,8 @@ async function handleGetMessages(request: NextRequest) {
       sender: msg.sender_type === 'user' ? 'user' : 'ai',
       content: msg.content,
       timestamp: new Date(msg.timestamp),
-      status: 'sent' as const
+      status: 'sent' as const,
+      user_id: msg.user_id || null // Include user_id to identify message sender
     })) || [];
 
     return NextResponse.json({ messages: formattedMessages });

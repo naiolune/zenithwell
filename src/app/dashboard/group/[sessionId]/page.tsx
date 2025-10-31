@@ -434,7 +434,8 @@ export default function GroupSessionPage() {
             sender: dbMessage.sender_type === 'user' ? 'user' : 'ai',
             content: dbMessage.content,
             timestamp: new Date(dbMessage.timestamp),
-            status: 'sent'
+            status: 'sent',
+            user_id: dbMessage.user_id || null // Include user_id to identify sender
           };
           
           console.log('[REALTIME] Adding new message:', newMessage);
@@ -457,7 +458,8 @@ export default function GroupSessionPage() {
               ...msg,
               content: dbMessage.content,
               sender: dbMessage.sender_type === 'user' ? 'user' : 'ai',
-              timestamp: new Date(dbMessage.timestamp)
+              timestamp: new Date(dbMessage.timestamp),
+              user_id: dbMessage.user_id || msg.user_id || null // Preserve user_id
             };
           }
           return msg;
@@ -509,7 +511,8 @@ export default function GroupSessionPage() {
       sender: 'user',
       content: inputMessage.trim(),
       timestamp: new Date(),
-      status: 'sending'
+      status: 'sending',
+      user_id: currentUserId || null // Include user_id for group sessions
     };
 
     setMessages(prev => [...prev, userMessage]);
@@ -843,15 +846,24 @@ export default function GroupSessionPage() {
         {/* Messages */}
         <div className="flex-1 overflow-y-auto bg-slate-900 dark:bg-slate-950">
           <div className="px-6 py-4 space-y-4">
-            {messages.map((message, index) => (
-              <MessageBubble
-                key={message.id}
-                message={message}
-                onResend={() => resendMessage(message.id)}
-                onDelete={() => deleteMessage(message.id)}
-                canDelete={message.sender === 'user' && !loading}
-              />
-            ))}
+            {messages.map((message, index) => {
+              // Create a map of participants for quick lookup
+              const participantsMap = new Map(
+                participants.map(p => [p.user_id, { full_name: p.full_name }])
+              );
+              
+              return (
+                <MessageBubble
+                  key={message.id}
+                  message={message}
+                  onResend={() => resendMessage(message.id)}
+                  onDelete={() => deleteMessage(message.id)}
+                  canDelete={message.sender === 'user' && message.user_id === currentUserId && !loading}
+                  currentUserId={currentUserId}
+                  participants={participantsMap}
+                />
+              );
+            })}
             {loading && (
               <div className="flex items-center gap-3 p-4">
                 <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white text-sm">

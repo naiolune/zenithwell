@@ -299,7 +299,8 @@ async function handleChatRequest(request: NextRequest, context: SecurityContext)
       .insert({
         session_id: sessionId,
         sender_type: 'user',
-        content: sanitizedMessage
+        content: sanitizedMessage,
+        user_id: context.user.id // Store which user sent the message
       })
       .select()
       .single();

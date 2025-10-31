@@ -99,6 +99,7 @@ export interface ChatMessage {
   resendCount?: number;
   session_id?: string;
   status?: 'sending' | 'sent' | 'failed';
+  user_id?: string | null; // User ID for user messages (to identify sender in group sessions)
 }
 
 export interface AIProvider {

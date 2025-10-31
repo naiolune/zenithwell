@@ -11,6 +11,8 @@ interface MessageBubbleProps {
   onDelete?: (message: ChatMessage) => void
   canDelete?: boolean
   className?: string
+  currentUserId?: string | null
+  participants?: Map<string, { full_name: string }>
 }
 
 export function MessageBubble({
@@ -19,11 +21,25 @@ export function MessageBubble({
   onDelete,
   canDelete = false,
   className,
+  currentUserId,
+  participants,
 }: MessageBubbleProps) {
   const isCoach = message.sender === 'ai'
+  const isCurrentUser = message.sender === 'user' && message.user_id === currentUserId
   const timestamp = message.timestamp instanceof Date
     ? message.timestamp
     : new Date(message.timestamp)
+
+  // Get sender name for group sessions
+  const getSenderName = () => {
+    if (isCoach) return 'Your Coach'
+    if (isCurrentUser) return 'You'
+    if (message.user_id && participants) {
+      const participant = participants.get(message.user_id)
+      return participant?.full_name || 'Member'
+    }
+    return 'You' // Fallback for individual sessions
+  }
 
   return (
     <div
@@ -38,12 +54,19 @@ export function MessageBubble({
           'px-6 py-4 rounded-3xl shadow-lg text-sm whitespace-pre-wrap leading-relaxed',
           isCoach
             ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white border border-slate-200 dark:border-slate-700 rounded-bl-lg'
-            : 'bg-gradient-to-br from-blue-500 to-indigo-600 text-white rounded-br-lg'
+            : isCurrentUser
+            ? 'bg-gradient-to-br from-blue-500 to-indigo-600 text-white rounded-br-lg'
+            : 'bg-gradient-to-br from-purple-500 to-pink-600 text-white rounded-br-lg'
         )}
       >
         {isCoach && (
           <p className="text-xs font-medium text-emerald-600 dark:text-emerald-400 mb-1">
-            Your Coach
+            {getSenderName()}
+          </p>
+        )}
+        {!isCoach && currentUserId && participants && (
+          <p className="text-xs font-medium text-white/80 mb-1">
+            {getSenderName()}
           </p>
         )}
         <p>{message.content}</p>
