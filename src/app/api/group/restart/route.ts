@@ -50,24 +50,43 @@ async function handleRestartRequest(request: NextRequest, context: SecurityConte
       return NextResponse.json({ error: 'Failed to delete messages' }, { status: 500 });
     }
 
-    // Generate new intro message
+    // Generate new intro message - wait for it to complete
+    console.log('[RESTART] Generating custom group intro...');
     const customIntro = await generateGroupSessionIntro(sessionId);
 
     if (customIntro) {
+      console.log('[RESTART] Custom intro generated successfully, length:', customIntro.length);
       // Save the new intro message
-      const { error: introError } = await supabase
+      const { data: savedIntro, error: introError } = await supabase
         .from('session_messages')
         .insert({
           session_id: sessionId,
           sender_type: 'ai',
           content: customIntro
-        });
+        })
+        .select()
+        .single();
 
       if (introError) {
-        console.error('Error saving new intro:', introError);
-        // Don't fail the request if intro save fails, just log it
+        console.error('[RESTART] Error saving custom intro:', introError);
+        // Fallback to default if save fails
+        const { error: defaultIntroError } = await supabase
+          .from('session_messages')
+          .insert({
+            session_id: sessionId,
+            sender_type: 'ai',
+            content: 'Welcome back! How are you feeling today? What would you like to work on?'
+          });
+
+        if (defaultIntroError) {
+          console.error('[RESTART] Error saving default intro:', defaultIntroError);
+          return NextResponse.json({ error: 'Failed to save intro message' }, { status: 500 });
+        }
+      } else {
+        console.log('[RESTART] Custom intro saved successfully:', savedIntro?.message_id);
       }
     } else {
+      console.warn('[RESTART] Custom intro generation failed or returned null, using default');
       // Fallback to default intro if generation fails
       const { error: defaultIntroError } = await supabase
         .from('session_messages')
@@ -78,7 +97,8 @@ async function handleRestartRequest(request: NextRequest, context: SecurityConte
         });
 
       if (defaultIntroError) {
-        console.error('Error saving default intro:', defaultIntroError);
+        console.error('[RESTART] Error saving default intro:', defaultIntroError);
+        return NextResponse.json({ error: 'Failed to save intro message' }, { status: 500 });
       }
     }
 

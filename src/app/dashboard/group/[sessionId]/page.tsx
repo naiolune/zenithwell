@@ -610,6 +610,13 @@ export default function GroupSessionPage() {
           }
         }
       })
+      .on('broadcast', {
+        event: 'session_restarted'
+      }, (payload: any) => {
+        console.log('[REALTIME] Session restarted:', payload);
+        // Clear all messages - real-time INSERT will add the new intro
+        setMessages([]);
+      })
       .subscribe((status) => {
         console.log('[REALTIME] Subscription status:', status);
         if (status === 'SUBSCRIBED') {
@@ -854,7 +861,19 @@ export default function GroupSessionPage() {
         throw new Error(errorData.error || 'Failed to restart session');
       }
 
-      // Refresh messages to show the new intro
+      // Clear all messages immediately (real-time will handle the new intro)
+      setMessages([]);
+      
+      // Broadcast restart event to other participants
+      if (realtimeChannelRef.current) {
+        realtimeChannelRef.current.send({
+          type: 'broadcast',
+          event: 'session_restarted',
+          payload: { sessionId, restartedBy: currentUserId }
+        }).catch((err: any) => console.error('Error broadcasting restart:', err));
+      }
+
+      // Refresh messages to show the new intro (real-time will also handle it)
       await fetchMessages();
       setShowRestartDialog(false);
     } catch (error) {

@@ -80,19 +80,29 @@ export async function generateGroupSessionIntro(sessionId: string): Promise<stri
     }).join('\n');
 
     // Create a prompt for generating the custom intro
-    const prompt = `You are a warm, empathetic wellness coach starting a ${session.group_category} group wellness session. 
+    const prompt = `You are a warm, empathetic wellness coach facilitating a ${session.group_category} group wellness session.
+
+You are addressing a GROUP of participants, not individuals. Use "all of you", "the group", "everyone" when addressing them collectively.
 
 Based on the following participant introductions, create a personalized, welcoming opening message that:
-1. Acknowledges everyone's presence and their individual goals
-2. Highlights common themes or shared objectives
-3. Sets a positive, collaborative tone
-4. Invites the group to begin their wellness journey together
-5. Is warm, encouraging, and inclusive
+1. Addresses the GROUP as a whole ("Welcome, everyone" or "Hello, all of you")
+2. Acknowledges each participant's presence and their individual goals/challenges
+3. Highlights common themes or shared objectives you notice across the group
+4. Sets a positive, collaborative tone for group discussion
+5. Invites the group to begin their wellness journey together
+6. Makes each participant feel seen and valued
+7. Is warm, encouraging, and inclusive (2-4 sentences)
+
+IMPORTANT: 
+- You are talking to a GROUP, not individuals
+- Reference specific participants by their first names when relevant
+- Draw connections between their goals and challenges
+- Make it feel personal and meaningful to each person
 
 Participant Introductions:
 ${introSummaries}
 
-Create a welcoming message (2-3 sentences) that addresses the group as a whole while acknowledging their individual goals. Make it feel personal and meaningful.`;
+Create a welcoming message that addresses the group collectively while acknowledging each person's unique goals and challenges. Make it feel like you truly understand what each participant is bringing to this session.`;
 
     // Generate the custom intro using AI
     const response = await ServerAIService.generateResponse([
