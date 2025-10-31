@@ -28,6 +28,8 @@ interface SessionData {
   created_at?: string;
   is_locked?: boolean;
   lock_reason?: string;
+  session_type?: string;
+  is_group?: boolean;
 }
 
 interface Participant {
@@ -1292,9 +1294,9 @@ export default function GroupSessionPage() {
                     }
                     return consecutiveCount >= 3 
                       ? 'Wait for a response or let another participant speak (3 message limit)'
-                      : 'Share your thoughts…';
+                      : 'Share your thoughts?';
                   })()
-                : 'Share your thoughts…'
+                : 'Share your thoughts?'
             }
           />
         </div>

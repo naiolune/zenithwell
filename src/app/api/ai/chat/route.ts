@@ -273,15 +273,9 @@ async function handleChatRequest(request: NextRequest, context: SecurityContext)
 
     // Check last 3 messages to enforce rate limiting (max 3 consecutive messages per participant)
     // Only check if this is a group session
-    const { data: sessionCheck } = await supabase
-      .from('therapy_sessions')
-      .select('session_type, is_group')
-      .eq('session_id', sessionId)
-      .single();
+    const isGroupSessionForRateLimit = sessionDetails?.session_type === 'group';
 
-    const isGroupSession = sessionCheck?.session_type === 'group' || sessionCheck?.is_group;
-
-    if (isGroupSession) {
+    if (isGroupSessionForRateLimit) {
       // Get last 3 messages to check for rate limiting
       const { data: recentMessages, error: recentMessagesError } = await supabase
         .from('session_messages')
@@ -434,7 +428,7 @@ async function handleChatRequest(request: NextRequest, context: SecurityContext)
     });
 
     // Check if this is a group session to include user context in messages
-    const isGroupSession = sessionDetails?.session_type === 'group';
+    const isGroupSession = isGroupSessionForRateLimit;
     
     // Get participant names for group sessions
     let participantNames: Map<string, string> = new Map();
