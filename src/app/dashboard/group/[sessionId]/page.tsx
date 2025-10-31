@@ -59,9 +59,11 @@ export default function GroupSessionPage() {
   const [showBreakPrompt, setShowBreakPrompt] = useState(false);
   const [showEmergencyResources, setShowEmergencyResources] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const realtimeChannelRef = useRef<any>(null);
+  const typingTimeoutRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
   const supabase = createClient();
 
   const messageStats = useMemo(() => {
@@ -92,6 +94,8 @@ export default function GroupSessionPage() {
       }
       // Cleanup message timeouts
       messageTimeouts.forEach(timeout => clearTimeout(timeout));
+      // Cleanup typing timeouts
+      typingTimeoutRef.current.forEach(timeout => clearTimeout(timeout));
       // Cleanup real-time subscription
       if (cleanup) cleanup();
     };
@@ -419,6 +423,20 @@ export default function GroupSessionPage() {
       }, (payload) => {
         console.log('[REALTIME] New message received:', payload);
         const dbMessage = payload.new as any;
+        
+        // If AI message arrives, clear typing indicators for the user who sent the previous message
+        if (dbMessage.sender_type === 'ai') {
+          setTypingUsers(prev => {
+            const next = new Set(prev);
+            // Clear all typing indicators when AI responds
+            next.clear();
+            return next;
+          });
+          // Clear all typing timeouts
+          typingTimeoutRef.current.forEach(timeout => clearTimeout(timeout));
+          typingTimeoutRef.current.clear();
+        }
+        
         // Check if message already exists (avoid duplicates)
         setMessages(prev => {
           const exists = prev.some(msg => msg.id === dbMessage.message_id || msg.id === dbMessage.id);
@@ -483,6 +501,49 @@ export default function GroupSessionPage() {
         console.log('[REALTIME] Participant updated');
         fetchParticipants();
       })
+      .on('broadcast', {
+        event: 'typing_start'
+      }, (payload: any) => {
+        console.log('[REALTIME] Typing start received:', payload);
+        // Handle different payload structures
+        const userId = payload.payload?.userId || payload.userId || (payload as any)?.payload?.userId;
+        // Don't show typing indicator for yourself
+        if (userId && userId !== currentUserId) {
+          setTypingUsers(prev => new Set(prev).add(userId));
+          
+          // Clear typing indicator after 10 seconds if no message arrives
+          if (typingTimeoutRef.current.has(userId)) {
+            clearTimeout(typingTimeoutRef.current.get(userId)!);
+          }
+          const timeout = setTimeout(() => {
+            setTypingUsers(prev => {
+              const next = new Set(prev);
+              next.delete(userId);
+              return next;
+            });
+            typingTimeoutRef.current.delete(userId);
+          }, 10000);
+          typingTimeoutRef.current.set(userId, timeout);
+        }
+      })
+      .on('broadcast', {
+        event: 'typing_stop'
+      }, (payload: any) => {
+        console.log('[REALTIME] Typing stop received:', payload);
+        // Handle different payload structures
+        const userId = payload.payload?.userId || payload.userId || (payload as any)?.payload?.userId;
+        if (userId && userId !== currentUserId) {
+          setTypingUsers(prev => {
+            const next = new Set(prev);
+            next.delete(userId);
+            return next;
+          });
+          if (typingTimeoutRef.current.has(userId)) {
+            clearTimeout(typingTimeoutRef.current.get(userId)!);
+            typingTimeoutRef.current.delete(userId);
+          }
+        }
+      })
       .subscribe((status) => {
         console.log('[REALTIME] Subscription status:', status);
         if (status === 'SUBSCRIBED') {
@@ -518,6 +579,15 @@ export default function GroupSessionPage() {
     setMessages(prev => [...prev, userMessage]);
     setInputMessage('');
     setLoading(true);
+
+    // Broadcast typing start to other participants
+    if (realtimeChannelRef.current && currentUserId) {
+      realtimeChannelRef.current.send({
+        type: 'broadcast',
+        event: 'typing_start',
+        payload: { userId: currentUserId }
+      }).catch((err: any) => console.error('Error broadcasting typing start:', err));
+    }
 
     try {
       const response = await fetch('/api/ai/chat', {
@@ -562,6 +632,15 @@ export default function GroupSessionPage() {
       };
 
       setMessages(prev => [...prev, aiMessage]);
+
+      // Broadcast typing stop to other participants
+      if (realtimeChannelRef.current && currentUserId) {
+        realtimeChannelRef.current.send({
+          type: 'broadcast',
+          event: 'typing_stop',
+          payload: { userId: currentUserId }
+        }).catch((err: any) => console.error('Error broadcasting typing stop:', err));
+      }
     } catch (error) {
       console.error('Error sending message:', error);
       setMessages(prev => prev.map(msg => 
@@ -569,6 +648,15 @@ export default function GroupSessionPage() {
           ? { ...msg, status: 'failed' }
           : msg
       ));
+
+      // Broadcast typing stop on error too
+      if (realtimeChannelRef.current && currentUserId) {
+        realtimeChannelRef.current.send({
+          type: 'broadcast',
+          event: 'typing_stop',
+          payload: { userId: currentUserId }
+        }).catch((err: any) => console.error('Error broadcasting typing stop:', err));
+      }
     } finally {
       setLoading(false);
     }
@@ -864,6 +952,7 @@ export default function GroupSessionPage() {
                 />
               );
             })}
+            {/* Show typing indicator for current user when loading */}
             {loading && (
               <div className="flex items-center gap-3 p-4">
                 <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white text-sm">
@@ -875,6 +964,22 @@ export default function GroupSessionPage() {
                 </div>
               </div>
             )}
+            {/* Show typing indicators for other users */}
+            {Array.from(typingUsers).map(userId => {
+              const participant = participants.find(p => p.user_id === userId);
+              const participantName = participant?.full_name || 'Someone';
+              return (
+                <div key={userId} className="flex items-center gap-3 p-4">
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white text-sm">
+                    ??
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-sm font-medium text-white">Your coach is typing...</div>
+                    <div className="text-xs text-slate-400">{participantName} sent a message</div>
+                  </div>
+                </div>
+              );
+            })}
             <div ref={messagesEndRef} />
           </div>
         </div>
