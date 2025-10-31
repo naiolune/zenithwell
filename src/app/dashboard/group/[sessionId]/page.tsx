@@ -940,13 +940,28 @@ export default function GroupSessionPage() {
                 participants.map(p => [p.user_id, { full_name: p.full_name }])
               );
               
+              // Check if delete button should be shown:
+              // 1. Message must be from current user
+              // 2. No AI reply exists after this message
+              // 3. Coach is not typing (no loading state and no typingUsers)
+              const isOwnMessage = message.sender === 'user' && message.user_id === currentUserId;
+              const coachIsTyping = loading || typingUsers.size > 0;
+              
+              // Check if there's an AI message after this user message
+              // Since messages are in chronological order, check if any message after this one is from AI
+              const hasCoachReply = isOwnMessage && messages.slice(index + 1).some(
+                msg => msg.sender === 'ai'
+              );
+              
+              const canDelete = isOwnMessage && !hasCoachReply && !coachIsTyping;
+              
               return (
                 <MessageBubble
                   key={message.id}
                   message={message}
                   onResend={() => resendMessage(message.id)}
                   onDelete={() => deleteMessage(message.id)}
-                  canDelete={message.sender === 'user' && message.user_id === currentUserId && !loading}
+                  canDelete={canDelete}
                   currentUserId={currentUserId}
                   participants={participantsMap}
                 />
