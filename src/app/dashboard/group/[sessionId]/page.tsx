@@ -448,7 +448,11 @@ export default function GroupSessionPage() {
           
           // For user messages, also check if we have a temp message with same content
           // This helps replace optimistic messages with real ones
-          if (dbMessage.sender_type === 'user' && dbMessage.user_id === currentUserId) {
+          if (dbMessage.sender_type === 'user') {
+            // Check if this message belongs to current user OR if we have a temp message matching it
+            const isCurrentUserMessage = dbMessage.user_id === currentUserId;
+            
+            // Find temp message that matches (by content and approximate timestamp)
             const tempMessageIndex = prev.findIndex(msg => 
               msg.id.startsWith('temp-') && 
               msg.content === dbMessage.content &&
@@ -469,6 +473,23 @@ export default function GroupSessionPage() {
                 user_id: dbMessage.user_id || null
               };
               return updated;
+            }
+            
+            // If this is current user's message and we don't have a temp version, it might be a duplicate
+            // Skip if we already have a message with same content from current user
+            if (isCurrentUserMessage) {
+              const hasDuplicate = prev.some(msg => 
+                msg.sender === 'user' &&
+                msg.user_id === currentUserId &&
+                msg.content === dbMessage.content &&
+                !msg.id.startsWith('temp-') &&
+                Math.abs(new Date(msg.timestamp).getTime() - new Date(dbMessage.timestamp).getTime()) < 2000
+              );
+              
+              if (hasDuplicate) {
+                console.log('[REALTIME] Duplicate current user message detected, skipping');
+                return prev;
+              }
             }
           }
           

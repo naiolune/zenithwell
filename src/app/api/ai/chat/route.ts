@@ -393,7 +393,7 @@ async function handleChatRequest(request: NextRequest, context: SecurityContext)
     // Get recent messages for context
     const { data: recentMessages, error: messagesError } = await supabase
       .from('session_messages')
-      .select('*')
+      .select('*, user_id')
       .eq('session_id', sessionId)
       .order('timestamp', { ascending: false })
       .limit(10);
@@ -405,16 +405,50 @@ async function handleChatRequest(request: NextRequest, context: SecurityContext)
 
     console.log('Raw messages from database:', recentMessages.length);
     recentMessages.forEach((msg, i) => {
-      console.log(`  DB[${i}] ${msg.sender_type}: ${msg.content.substring(0, 50)}...`);
+      console.log(`  DB[${i}] ${msg.sender_type}: ${msg.content.substring(0, 50)}... (user_id: ${msg.user_id || 'none'})`);
     });
 
+    // Check if this is a group session to include user context in messages
+    const isGroupSession = sessionDetails?.session_type === 'group';
+    
+    // Get participant names for group sessions
+    let participantNames: Map<string, string> = new Map();
+    if (isGroupSession) {
+      const { data: participants } = await supabase
+        .from('session_participants')
+        .select(`
+          user_id,
+          users!inner(id, email, full_name)
+        `)
+        .eq('session_id', sessionId);
+      
+      if (participants) {
+        participants.forEach((p: any) => {
+          const user = Array.isArray(p.users) ? p.users[0] : p.users;
+          const name = user?.full_name || user?.email?.split('@')[0] || 'Participant';
+          participantNames.set(p.user_id, name);
+        });
+      }
+    }
+
     // Convert to AI format (reverse order for proper context)
+    // For group sessions, include user name in user messages
     const aiMessages = recentMessages
       .reverse()
-      .map(msg => ({
-        role: (msg.sender_type === 'user' ? 'user' : 'assistant') as 'user' | 'assistant' | 'system',
-        content: msg.content
-      }));
+      .map(msg => {
+        let content = msg.content;
+        
+        // For group sessions, prefix user messages with participant name
+        if (isGroupSession && msg.sender_type === 'user' && msg.user_id) {
+          const participantName = participantNames.get(msg.user_id) || 'Someone';
+          content = `[${participantName}]: ${msg.content}`;
+        }
+        
+        return {
+          role: (msg.sender_type === 'user' ? 'user' : 'assistant') as 'user' | 'assistant' | 'system',
+          content: content
+        };
+      });
 
     console.log('Converted to AI format:', aiMessages.length);
     aiMessages.forEach((msg, i) => {
