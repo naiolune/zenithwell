@@ -144,7 +144,7 @@ export class ServerAIService {
 
           // Get participant introductions and group memory for group sessions
           if (session?.group_category) {
-            // Get participant introductions
+            // Get participant introductions (without join to avoid RLS issues)
             const { data: introductions } = await supabase
               .from('participant_introductions')
               .select(`
@@ -160,36 +160,101 @@ export class ServerAIService {
                 participant_role,
                 wellness_reason,
                 personal_goals,
-                expectations,
-                users!inner(
-                  id,
-                  email,
-                  full_name
-                )
+                expectations
               `)
               .eq('session_id', sessionId);
 
-            if (introductions) {
-              participantIntroductions = introductions.map(intro => {
-                const user = Array.isArray(intro.users) ? intro.users[0] : intro.users;
-                return {
-                  user_id: intro.user_id,
-                  user_name: user?.full_name || user?.email,
-                  user_email: user?.email,
-                group_category: intro.group_category,
-                relationship_role: intro.relationship_role,
-                why_wellness: intro.why_wellness,
-                goals: intro.goals,
-                challenges: intro.challenges,
-                family_role: intro.family_role,
-                family_goals: intro.family_goals,
-                what_to_achieve: intro.what_to_achieve,
-                participant_role: intro.participant_role,
-                wellness_reason: intro.wellness_reason,
-                personal_goals: intro.personal_goals,
-                expectations: intro.expectations
-                };
-              });
+            if (introductions && introductions.length > 0) {
+              // Fetch user names from auth.users.user_metadata for each participant
+              const introductionsWithUsers = [];
+              
+              for (const intro of introductions) {
+                try {
+                  const { data: authUser, error: authError } = await supabase.auth.admin.getUserById(intro.user_id);
+                  if (!authError && authUser?.user) {
+                    const meta = authUser.user.user_metadata || {};
+                    
+                    // Prefer first_name + last_name, fallback to full_name, then name, then display_name, then email username
+                    let userName = null;
+                    if (meta.first_name || meta.last_name) {
+                      userName = `${meta.first_name || ''} ${meta.last_name || ''}`.trim();
+                    } else {
+                      userName = meta.full_name || meta.name || meta.display_name || null;
+                    }
+                    
+                    // Fallback to email username if no name found
+                    if (!userName && authUser.user.email) {
+                      userName = authUser.user.email.split('@')[0];
+                    }
+                    
+                    // Extract first name if full name exists (for consistency)
+                    let displayName = userName;
+                    if (userName && userName.trim()) {
+                      displayName = userName.trim().split(' ')[0];
+                    }
+                    
+                    introductionsWithUsers.push({
+                      user_id: intro.user_id,
+                      user_name: displayName || 'Participant',
+                      user_email: authUser.user.email || '',
+                      group_category: intro.group_category,
+                      relationship_role: intro.relationship_role,
+                      why_wellness: intro.why_wellness,
+                      goals: intro.goals,
+                      challenges: intro.challenges,
+                      family_role: intro.family_role,
+                      family_goals: intro.family_goals,
+                      what_to_achieve: intro.what_to_achieve,
+                      participant_role: intro.participant_role,
+                      wellness_reason: intro.wellness_reason,
+                      personal_goals: intro.personal_goals,
+                      expectations: intro.expectations
+                    });
+                  } else {
+                    // Fallback if we can't get auth user
+                    introductionsWithUsers.push({
+                      user_id: intro.user_id,
+                      user_name: 'Participant',
+                      user_email: '',
+                      group_category: intro.group_category,
+                      relationship_role: intro.relationship_role,
+                      why_wellness: intro.why_wellness,
+                      goals: intro.goals,
+                      challenges: intro.challenges,
+                      family_role: intro.family_role,
+                      family_goals: intro.family_goals,
+                      what_to_achieve: intro.what_to_achieve,
+                      participant_role: intro.participant_role,
+                      wellness_reason: intro.wellness_reason,
+                      personal_goals: intro.personal_goals,
+                      expectations: intro.expectations
+                    });
+                  }
+                } catch (error) {
+                  console.error(`Error fetching user name for participant ${intro.user_id}:`, error);
+                  // Include introduction without name if fetch fails
+                  introductionsWithUsers.push({
+                    user_id: intro.user_id,
+                    user_name: 'Participant',
+                    user_email: '',
+                    group_category: intro.group_category,
+                    relationship_role: intro.relationship_role,
+                    why_wellness: intro.why_wellness,
+                    goals: intro.goals,
+                    challenges: intro.challenges,
+                    family_role: intro.family_role,
+                    family_goals: intro.family_goals,
+                    what_to_achieve: intro.what_to_achieve,
+                    participant_role: intro.participant_role,
+                    wellness_reason: intro.wellness_reason,
+                    personal_goals: intro.personal_goals,
+                    expectations: intro.expectations
+                  });
+                }
+              }
+              
+              participantIntroductions = introductionsWithUsers;
+              console.log(`Loaded ${participantIntroductions.length} participant introductions with names`);
             }
 
             // Get group memory

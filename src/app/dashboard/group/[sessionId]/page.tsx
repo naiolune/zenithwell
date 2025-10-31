@@ -26,6 +26,8 @@ interface SessionData {
   session_status: string;
   user_id: string;
   created_at?: string;
+  is_locked?: boolean;
+  lock_reason?: string;
 }
 
 interface Participant {
@@ -62,6 +64,8 @@ export default function GroupSessionPage() {
   const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set());
   const [showRestartDialog, setShowRestartDialog] = useState(false);
   const [isRestarting, setIsRestarting] = useState(false);
+  const [showSessionEndedDialog, setShowSessionEndedDialog] = useState(false);
+  const [isEndingSession, setIsEndingSession] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const realtimeChannelRef = useRef<any>(null);
@@ -102,6 +106,13 @@ export default function GroupSessionPage() {
       if (cleanup) cleanup();
     };
   }, [sessionId]);
+
+  // Check if session is locked and show modal
+  useEffect(() => {
+    if (sessionData?.is_locked) {
+      setShowSessionEndedDialog(true);
+    }
+  }, [sessionData?.is_locked]);
 
   useEffect(() => {
     scrollToBottom();
@@ -617,6 +628,15 @@ export default function GroupSessionPage() {
         // Clear all messages - real-time INSERT will add the new intro
         setMessages([]);
       })
+      .on('broadcast', {
+        event: 'session_ended'
+      }, (payload: any) => {
+        console.log('[REALTIME] Session ended:', payload);
+        // Show modal for all participants
+        setShowSessionEndedDialog(true);
+        // Disable input
+        setInputMessage('');
+      })
       .subscribe((status) => {
         console.log('[REALTIME] Subscription status:', status);
         if (status === 'SUBSCRIBED') {
@@ -884,11 +904,83 @@ export default function GroupSessionPage() {
     }
   };
 
+  const handleEndSession = async () => {
+    if (!isOwner) return;
+    
+    if (!confirm('Are you sure you want to end this group session? This will lock the session for all participants.')) {
+      return;
+    }
+
+    setIsEndingSession(true);
+    try {
+      // Call API to lock the session
+      const response = await fetch(`/api/group/end?sessionId=${sessionId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to end session');
+      }
+
+      // Broadcast session ended event to all participants
+      if (realtimeChannelRef.current) {
+        await realtimeChannelRef.current.send({
+          type: 'broadcast',
+          event: 'session_ended',
+          payload: { sessionId }
+        }).catch((err: any) => console.error('Error broadcasting session ended:', err));
+      }
+
+      // Show modal for the owner too
+      setShowSessionEndedDialog(true);
+      
+      // Refresh session data to reflect locked status
+      await fetchSessionData();
+    } catch (error) {
+      console.error('Error ending session:', error);
+      alert(error instanceof Error ? error.message : 'Failed to end session');
+    } finally {
+      setIsEndingSession(false);
+    }
+  };
+
+  const handleCreateNewSession = async () => {
+    try {
+      const response = await fetch('/api/sessions/create', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          sessionType: 'individual'
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to create session');
+      }
+
+      const { sessionId: newSessionId } = await response.json();
+      
+      // Navigate to the new individual session
+      router.push(`/dashboard/chat/${newSessionId}`);
+    } catch (error) {
+      console.error('Error creating new session:', error);
+      alert(error instanceof Error ? error.message : 'Failed to create new session');
+    }
+  };
+
   const renderQuickActions = () => (
     <QuickActions
-      onEndSession={() => router.push('/dashboard/group')}
+      onEndSession={handleEndSession}
       onRestartSession={() => setShowRestartDialog(true)}
       showRestart={isOwner && sessionData?.session_status === 'active'}
+      disabled={isEndingSession}
     />
   );
 
@@ -1118,9 +1210,11 @@ export default function GroupSessionPage() {
             onChange={setInputMessage}
             onSend={sendMessage}
             onKeyDown={handleInputKeyDown}
-            disabled={!canSendMessage() || loading}
+            disabled={!canSendMessage() || loading || sessionData?.is_locked || showSessionEndedDialog}
             placeholder={
-              sessionData?.session_status === 'waiting' && !isOwner
+              sessionData?.is_locked
+                ? 'Session has ended'
+                : sessionData?.session_status === 'waiting' && !isOwner
                 ? 'Waiting for session to start...'
                 : sessionData?.session_status === 'waiting' && isOwner
                 ? 'Start the session when all participants are ready...'
@@ -1156,6 +1250,38 @@ export default function GroupSessionPage() {
               disabled={isRestarting}
             >
               {isRestarting ? 'Restarting...' : 'Yes, Restart Session'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Session Ended Dialog */}
+      <Dialog open={showSessionEndedDialog} onOpenChange={() => {}}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Session Ended</DialogTitle>
+            <DialogDescription>
+              This group session has been ended by the session owner. The session is now locked and no further messages can be sent.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-sm text-slate-600 dark:text-slate-400">
+              If you'd like to continue with a one-on-one session with your coach, you can create a new individual session.
+            </p>
+          </div>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button
+              variant="outline"
+              onClick={() => router.push('/dashboard/group')}
+              className="w-full sm:w-auto"
+            >
+              Back to Sessions
+            </Button>
+            <Button
+              onClick={handleCreateNewSession}
+              className="w-full sm:w-auto"
+            >
+              Create New Individual Session
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -414,21 +414,89 @@ async function handleChatRequest(request: NextRequest, context: SecurityContext)
     // Get participant names for group sessions
     let participantNames: Map<string, string> = new Map();
     if (isGroupSession) {
+      // First, add the session owner to the participant names map
+      // The owner might not be in session_participants table
+      try {
+        const { data: authUser, error: authError } = await supabase.auth.admin.getUserById(session.user_id);
+        if (!authError && authUser?.user) {
+          const meta = authUser.user.user_metadata || {};
+          
+          // Prefer first_name + last_name, fallback to full_name, then name, then display_name, then email username
+          let participantName = 'Participant';
+          if (meta.first_name || meta.last_name) {
+            participantName = `${meta.first_name || ''} ${meta.last_name || ''}`.trim();
+          } else {
+            participantName = meta.full_name || meta.name || meta.display_name || null;
+          }
+          
+          // Fallback to email username if no name found
+          if (!participantName && authUser.user.email) {
+            participantName = authUser.user.email.split('@')[0];
+          }
+          
+          // Extract first name if full name exists (for consistency with participants API)
+          if (participantName && participantName.trim()) {
+            const firstName = participantName.trim().split(' ')[0];
+            participantNames.set(session.user_id, firstName || participantName.trim());
+          } else {
+            participantNames.set(session.user_id, 'Participant');
+          }
+        }
+      } catch (error) {
+        console.error(`Error fetching session owner name for ${session.user_id}:`, error);
+      }
+      
+      // Then fetch all participants from session_participants table
       const { data: participants } = await supabase
         .from('session_participants')
-        .select(`
-          user_id,
-          users!inner(id, email, full_name)
-        `)
+        .select('user_id')
         .eq('session_id', sessionId);
       
       if (participants) {
-        participants.forEach((p: any) => {
-          const user = Array.isArray(p.users) ? p.users[0] : p.users;
-          const name = user?.full_name || user?.email?.split('@')[0] || 'Participant';
-          participantNames.set(p.user_id, name);
-        });
+        // Fetch participant names from auth.users.user_metadata (same approach as participants API)
+        for (const p of participants) {
+          // Skip if already added (owner)
+          if (participantNames.has(p.user_id)) {
+            continue;
+          }
+          
+          try {
+            const { data: authUser, error: authError } = await supabase.auth.admin.getUserById(p.user_id);
+            if (!authError && authUser?.user) {
+              const meta = authUser.user.user_metadata || {};
+              
+              // Prefer first_name + last_name, fallback to full_name, then name, then display_name, then email username
+              let participantName = 'Participant';
+              if (meta.first_name || meta.last_name) {
+                participantName = `${meta.first_name || ''} ${meta.last_name || ''}`.trim();
+              } else {
+                participantName = meta.full_name || meta.name || meta.display_name || null;
+              }
+              
+              // Fallback to email username if no name found
+              if (!participantName && authUser.user.email) {
+                participantName = authUser.user.email.split('@')[0];
+              }
+              
+              // Extract first name if full name exists (for consistency with participants API)
+              if (participantName && participantName.trim()) {
+                const firstName = participantName.trim().split(' ')[0];
+                participantNames.set(p.user_id, firstName || participantName.trim());
+              } else {
+                participantNames.set(p.user_id, 'Participant');
+              }
+            } else {
+              // Fallback if we can't get auth user
+              participantNames.set(p.user_id, 'Participant');
+            }
+          } catch (error) {
+            console.error(`Error fetching participant name for ${p.user_id}:`, error);
+            participantNames.set(p.user_id, 'Participant');
+          }
+        }
       }
+      
+      console.log('Participant names map (including owner):', Array.from(participantNames.entries()));
     }
 
     // Convert to AI format (reverse order for proper context)
