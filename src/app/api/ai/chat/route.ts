@@ -271,26 +271,51 @@ async function handleChatRequest(request: NextRequest, context: SecurityContext)
       }
     }
 
-    // Check last message BEFORE saving to prevent consecutive user messages
-    const { data: lastMessageData, error: lastMessageError } = await supabase
-      .from('session_messages')
-      .select('sender_type')
+    // Check last 3 messages to enforce rate limiting (max 3 consecutive messages per participant)
+    // Only check if this is a group session
+    const { data: sessionCheck } = await supabase
+      .from('therapy_sessions')
+      .select('session_type, is_group')
       .eq('session_id', sessionId)
-      .order('timestamp', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .single();
 
-    if (lastMessageError) {
-      console.error('Error checking last message:', lastMessageError);
-      return NextResponse.json({ error: 'Failed to validate message sequence' }, { status: 500 });
-    }
+    const isGroupSession = sessionCheck?.session_type === 'group' || sessionCheck?.is_group;
 
-    // If last message was from user, prevent saving another user message
-    if (lastMessageData && lastMessageData.sender_type === 'user') {
-      return NextResponse.json({ 
-        error: 'Please wait for AI response before sending another message',
-        code: 'CONSECUTIVE_USER_MESSAGE'
-      }, { status: 400 });
+    if (isGroupSession) {
+      // Get last 3 messages to check for rate limiting
+      const { data: recentMessages, error: recentMessagesError } = await supabase
+        .from('session_messages')
+        .select('sender_type, user_id')
+        .eq('session_id', sessionId)
+        .order('timestamp', { ascending: false })
+        .limit(3);
+
+      if (recentMessagesError) {
+        console.error('Error checking recent messages:', recentMessagesError);
+        return NextResponse.json({ error: 'Failed to validate message sequence' }, { status: 500 });
+      }
+
+      // Count consecutive messages from the same user
+      if (recentMessages && recentMessages.length > 0) {
+        let consecutiveCount = 0;
+        for (const msg of recentMessages) {
+          if (msg.sender_type === 'user' && msg.user_id === context.user.id) {
+            consecutiveCount++;
+          } else {
+            // Stop counting when we hit an AI message or message from another participant
+            break;
+          }
+        }
+
+        // Allow maximum 3 consecutive messages per participant
+        if (consecutiveCount >= 3) {
+          return NextResponse.json({ 
+            error: 'You have reached the limit of 3 consecutive messages. Please wait for a response or let another participant speak.',
+            code: 'RATE_LIMIT_EXCEEDED',
+            consecutiveCount
+          }, { status: 400 });
+        }
+      }
     }
 
     // Save user message to database (only if validation passed)

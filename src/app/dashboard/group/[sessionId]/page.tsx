@@ -230,7 +230,7 @@ export default function GroupSessionPage() {
           });
 
           if (response.ok) {
-            fetchParticipants();
+          fetchParticipants();
           } else {
             const data = await response.json();
             console.error('Error adding participant via API:', data);
@@ -375,22 +375,22 @@ export default function GroupSessionPage() {
       } else {
         console.error('Error fetching participants:', await response.text());
         // Fallback: try direct query (might fail due to RLS)
-        const { data: spRows, error: spErr } = await supabase
-          .from('session_participants')
-          .select('user_id, is_ready')
-          .eq('session_id', sessionId);
+      const { data: spRows, error: spErr } = await supabase
+        .from('session_participants')
+        .select('user_id, is_ready')
+        .eq('session_id', sessionId);
         if (!spErr && spRows) {
           const list: Participant[] = spRows.map(r => ({
-            user_id: r.user_id,
-            email: '',
-            full_name: r.user_id === currentUserId ? 'You' : 'Member',
-            is_ready: (r as any).is_ready || false,
-            is_online: r.user_id === currentUserId ? true : false,
-            is_away: false,
-            last_heartbeat: '' as any,
-            presence_status: r.user_id === currentUserId ? 'online' : 'unknown',
-          }));
-          setParticipants(list);
+        user_id: r.user_id,
+        email: '',
+        full_name: r.user_id === currentUserId ? 'You' : 'Member',
+        is_ready: (r as any).is_ready || false,
+        is_online: r.user_id === currentUserId ? true : false,
+        is_away: false,
+        last_heartbeat: '' as any,
+        presence_status: r.user_id === currentUserId ? 'online' : 'unknown',
+      }));
+      setParticipants(list);
         }
       }
     } catch (e) {
@@ -659,6 +659,34 @@ export default function GroupSessionPage() {
   const sendMessage = async () => {
     if (!inputMessage.trim() || loading) return;
 
+    // Client-side rate limiting check for group sessions
+    if (sessionData?.session_type === 'group' || sessionData?.is_group) {
+      // Get last 3 messages from current user
+      const recentUserMessages = messages
+        .filter(msg => msg.sender === 'user' && msg.user_id === currentUserId)
+        .slice(-3);
+      
+      // Check if we have 3 consecutive user messages (no AI response in between)
+      let consecutiveCount = 0;
+      for (let i = messages.length - 1; i >= 0 && consecutiveCount < 3; i--) {
+        const msg = messages[i];
+        if (msg.sender === 'user' && msg.user_id === currentUserId) {
+          consecutiveCount++;
+        } else if (msg.sender === 'ai') {
+          // AI response breaks the consecutive chain
+          break;
+        } else if (msg.sender === 'user' && msg.user_id !== currentUserId) {
+          // Another participant's message breaks the consecutive chain
+          break;
+        }
+      }
+
+      if (consecutiveCount >= 3) {
+        alert('You have reached the limit of 3 consecutive messages. Please wait for a response or let another participant speak.');
+        return;
+      }
+    }
+
     const userMessage: ChatMessage = {
       id: `temp-${Date.now()}`,
       session_id: sessionId,
@@ -701,6 +729,12 @@ export default function GroupSessionPage() {
           setWaitingForParticipants(true);
         } else if (errorData.sessionWaiting) {
           setSessionWaiting(true);
+        } else if (errorData.code === 'RATE_LIMIT_EXCEEDED') {
+          // Show rate limit error message
+          alert(errorData.error || 'You have reached the limit of 3 consecutive messages.');
+          // Remove the optimistic message
+          setMessages(prev => prev.filter(msg => msg.id !== userMessage.id));
+          setInputMessage(userMessage.content); // Restore message content
         }
         throw new Error(errorData.error || 'Failed to send message');
       }
@@ -845,9 +879,33 @@ export default function GroupSessionPage() {
     if (sessionData?.session_status === 'waiting') {
       return false; // No one can send messages in waiting room
     }
-    return sessionData?.session_status === 'active' && 
+    
+    if (!(sessionData?.session_status === 'active' && 
            !waitingForParticipants && 
-           !sessionWaiting;
+          !sessionWaiting)) {
+      return false;
+    }
+
+    // Check rate limiting for group sessions
+    if ((sessionData?.session_type === 'group' || sessionData?.is_group) && currentUserId) {
+      // Count consecutive messages from current user
+      let consecutiveCount = 0;
+      for (let i = messages.length - 1; i >= 0 && consecutiveCount < 3; i--) {
+        const msg = messages[i];
+        if (msg.sender === 'user' && msg.user_id === currentUserId) {
+          consecutiveCount++;
+        } else if (msg.sender === 'ai' || (msg.sender === 'user' && msg.user_id !== currentUserId)) {
+          // AI response or another participant's message breaks the chain
+          break;
+        }
+      }
+      
+      if (consecutiveCount >= 3) {
+        return false; // Rate limit reached
+      }
+    }
+    
+    return true;
   };
 
   const handleCloseEmergencyResources = () => {
@@ -1110,11 +1168,11 @@ export default function GroupSessionPage() {
                     {isReady ? 'Ready ?' : 'Mark Ready'}
                   </Button>
                 )}
-                {isOwner && allParticipantsReady && (
-                  <Button size="sm" onClick={startSession} className="bg-amber-600 hover:bg-amber-700">
-                    Start session
-                  </Button>
-                )}
+              {isOwner && allParticipantsReady && (
+                <Button size="sm" onClick={startSession} className="bg-amber-600 hover:bg-amber-700">
+                  Start session
+                </Button>
+              )}
               </div>
             </div>
           </div>
@@ -1160,15 +1218,15 @@ export default function GroupSessionPage() {
               const canDelete = isOwnMessage && !hasCoachReply && !coachIsTyping;
               
               return (
-                <MessageBubble
-                  key={message.id}
-                  message={message}
-                  onResend={() => resendMessage(message.id)}
-                  onDelete={() => deleteMessage(message.id)}
+              <MessageBubble
+                key={message.id}
+                message={message}
+                onResend={() => resendMessage(message.id)}
+                onDelete={() => deleteMessage(message.id)}
                   canDelete={canDelete}
                   currentUserId={currentUserId}
                   participants={participantsMap}
-                />
+              />
               );
             })}
             {/* Show typing indicator for current user when loading */}
@@ -1220,7 +1278,23 @@ export default function GroupSessionPage() {
                 ? 'Start the session when all participants are ready...'
                 : waitingForParticipants
                 ? 'Waiting for all participants...'
-                : 'Type your message...'
+                : !canSendMessage() && (sessionData?.session_type === 'group' || sessionData?.is_group) && currentUserId
+                ? (() => {
+                    // Check if rate limited
+                    let consecutiveCount = 0;
+                    for (let i = messages.length - 1; i >= 0 && consecutiveCount < 3; i--) {
+                      const msg = messages[i];
+                      if (msg.sender === 'user' && msg.user_id === currentUserId) {
+                        consecutiveCount++;
+                      } else {
+                        break;
+                      }
+                    }
+                    return consecutiveCount >= 3 
+                      ? 'Wait for a response or let another participant speak (3 message limit)'
+                      : 'Share your thoughts…';
+                  })()
+                : 'Share your thoughts…'
             }
           />
         </div>
