@@ -412,7 +412,7 @@ export default function GroupSessionPage() {
     const channel = supabase
       .channel(`session-${sessionId}`, {
         config: {
-          broadcast: { self: true }
+          broadcast: { self: false } // Don't receive our own broadcasts - we use loading state instead
         }
       })
       .on('postgres_changes', {
@@ -439,10 +439,37 @@ export default function GroupSessionPage() {
         
         // Check if message already exists (avoid duplicates)
         setMessages(prev => {
-          const exists = prev.some(msg => msg.id === dbMessage.message_id || msg.id === dbMessage.id);
-          if (exists) {
-            console.log('[REALTIME] Message already exists, skipping');
+          // Check for exact match by ID
+          const existsById = prev.some(msg => msg.id === dbMessage.message_id || msg.id === dbMessage.id);
+          if (existsById) {
+            console.log('[REALTIME] Message already exists by ID, skipping');
             return prev;
+          }
+          
+          // For user messages, also check if we have a temp message with same content
+          // This helps replace optimistic messages with real ones
+          if (dbMessage.sender_type === 'user' && dbMessage.user_id === currentUserId) {
+            const tempMessageIndex = prev.findIndex(msg => 
+              msg.id.startsWith('temp-') && 
+              msg.content === dbMessage.content &&
+              msg.sender === 'user' &&
+              Math.abs(new Date(msg.timestamp).getTime() - new Date(dbMessage.timestamp).getTime()) < 5000
+            );
+            
+            if (tempMessageIndex !== -1) {
+              console.log('[REALTIME] Replacing temp message with real message');
+              const updated = [...prev];
+              updated[tempMessageIndex] = {
+                id: dbMessage.message_id || dbMessage.id,
+                session_id: dbMessage.session_id,
+                sender: 'user',
+                content: dbMessage.content,
+                timestamp: new Date(dbMessage.timestamp),
+                status: 'sent',
+                user_id: dbMessage.user_id || null
+              };
+              return updated;
+            }
           }
           
           // Format message from database to ChatMessage format
@@ -507,7 +534,7 @@ export default function GroupSessionPage() {
         console.log('[REALTIME] Typing start received:', payload);
         // Handle different payload structures
         const userId = payload.payload?.userId || payload.userId || (payload as any)?.payload?.userId;
-        // Don't show typing indicator for yourself
+        // Don't show typing indicator for yourself - we use the loading state for that
         if (userId && userId !== currentUserId) {
           setTypingUsers(prev => new Set(prev).add(userId));
           
@@ -614,25 +641,16 @@ export default function GroupSessionPage() {
 
       const data = await response.json();
       
-      // Update the user message status
+      // Update the user message status - real-time will replace it with actual message
       setMessages(prev => prev.map(msg => 
         msg.id === userMessage.id 
           ? { ...msg, status: 'sent' }
           : msg
       ));
 
-      // Add AI response
-      const aiMessage: ChatMessage = {
-        id: data.messageId,
-        session_id: sessionId,
-        sender: 'ai',
-        content: data.message,
-        timestamp: new Date(),
-        status: 'sent'
-      };
-
-      setMessages(prev => [...prev, aiMessage]);
-
+      // Don't manually add AI response - let real-time handle it to avoid duplicates
+      // Real-time subscription will receive the AI message from the database
+      
       // Broadcast typing stop to other participants
       if (realtimeChannelRef.current && currentUserId) {
         realtimeChannelRef.current.send({
@@ -979,8 +997,8 @@ export default function GroupSessionPage() {
                 </div>
               </div>
             )}
-            {/* Show typing indicators for other users */}
-            {Array.from(typingUsers).map(userId => {
+            {/* Show typing indicators for OTHER users only (not yourself) */}
+            {Array.from(typingUsers).filter(userId => userId !== currentUserId).map(userId => {
               const participant = participants.find(p => p.user_id === userId);
               const participantName = participant?.full_name || 'Someone';
               return (
