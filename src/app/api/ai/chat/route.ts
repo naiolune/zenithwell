@@ -294,20 +294,49 @@ async function handleChatRequest(request: NextRequest, context: SecurityContext)
     }
 
     // Save user message to database (only if validation passed)
-    const { data: userMessage, error: messageError } = await supabase
+    // Try inserting with user_id first, fallback to without if column doesn't exist yet
+    let insertData: any = {
+      session_id: sessionId,
+      sender_type: 'user',
+      content: sanitizedMessage,
+    };
+    
+    // Include user_id if the column exists (migration may not have been run yet)
+    insertData.user_id = context.user.id;
+
+    let userMessage: any;
+    const { data: insertedMessage, error: messageError } = await supabase
       .from('session_messages')
-      .insert({
-        session_id: sessionId,
-        sender_type: 'user',
-        content: sanitizedMessage,
-        user_id: context.user.id // Store which user sent the message
-      })
+      .insert(insertData)
       .select()
       .single();
 
     if (messageError) {
-      console.error('Error saving user message:', messageError);
-      return NextResponse.json({ error: 'Failed to save message' }, { status: 500 });
+      // If error is about missing user_id column, try without it
+      if (messageError.code === 'PGRST204' && messageError.message?.includes('user_id')) {
+        console.warn('user_id column not found, inserting without it. Please run migration: add-user-id-to-session-messages.sql');
+        const { data: retryMessage, error: retryError } = await supabase
+          .from('session_messages')
+          .insert({
+            session_id: sessionId,
+            sender_type: 'user',
+            content: sanitizedMessage,
+          })
+          .select()
+          .single();
+        
+        if (retryError) {
+          console.error('Error saving user message (retry):', retryError);
+          return NextResponse.json({ error: 'Failed to save message' }, { status: 500 });
+        }
+        
+        userMessage = retryMessage;
+      } else {
+        console.error('Error saving user message:', messageError);
+        return NextResponse.json({ error: 'Failed to save message' }, { status: 500 });
+      }
+    } else {
+      userMessage = insertedMessage;
     }
 
     console.log('=== CHAT API DEBUG ===');
