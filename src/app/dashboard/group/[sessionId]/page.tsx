@@ -534,6 +534,22 @@ export default function GroupSessionPage() {
         }));
       })
       .on('postgres_changes', {
+        event: 'DELETE',
+        schema: 'public',
+        table: 'session_messages',
+        filter: `session_id=eq.${sessionId}`
+      }, (payload) => {
+        console.log('[REALTIME] Message deleted:', payload);
+        const deletedMessage = payload.old as any;
+        const messageId = deletedMessage.message_id || deletedMessage.id;
+        
+        if (messageId) {
+          // Remove the deleted message from state
+          setMessages(prev => prev.filter(msg => msg.id !== messageId));
+          console.log('[REALTIME] Removed deleted message from state:', messageId);
+        }
+      })
+      .on('postgres_changes', {
         event: 'INSERT',
         schema: 'public',
         table: 'session_participants',
