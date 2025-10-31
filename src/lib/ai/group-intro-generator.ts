@@ -106,29 +106,36 @@ export async function generateGroupSessionIntro(sessionId: string): Promise<stri
     }).join('\n');
 
     // Create a prompt for generating the custom intro
+    const participantNames = introductionsWithUsers.map(intro => {
+      const user = Array.isArray(intro.users) ? intro.users[0] : intro.users;
+      return user?.full_name?.split(' ')[0] || user?.email?.split('@')[0] || 'Participant';
+    }).filter(Boolean);
+
     const prompt = `You are a warm, empathetic wellness coach facilitating a ${session.group_category} group wellness session.
 
-You are addressing a GROUP of participants, not individuals. Use "all of you", "the group", "everyone" when addressing them collectively.
+You are addressing a GROUP of ${introductionsWithUsers.length} participants: ${participantNames.join(', ')}. Use "all of you", "the group", "everyone" when addressing them collectively.
 
 Based on the following participant introductions, create a personalized, welcoming opening message that:
 1. Addresses the GROUP as a whole ("Welcome, everyone" or "Hello, all of you")
-2. Acknowledges each participant's presence and their individual goals/challenges
-3. Highlights common themes or shared objectives you notice across the group
-4. Sets a positive, collaborative tone for group discussion
-5. Invites the group to begin their wellness journey together
-6. Makes each participant feel seen and valued
-7. Is warm, encouraging, and inclusive (2-4 sentences)
+2. **MUST mention ALL participants by their first names** - acknowledge each person: ${participantNames.join(', ')}
+3. Acknowledges each participant's individual goals/challenges briefly
+4. Highlights common themes or shared objectives you notice across the group
+5. Sets a positive, collaborative tone for group discussion
+6. Invites the group to begin their wellness journey together
+7. Makes each participant feel seen and valued
+8. Is warm, encouraging, and inclusive (3-5 sentences)
 
-IMPORTANT: 
-- You are talking to a GROUP, not individuals
-- Reference specific participants by their first names when relevant
-- Draw connections between their goals and challenges
-- Make it feel personal and meaningful to each person
+CRITICAL REQUIREMENTS:
+- You MUST mention ALL ${introductionsWithUsers.length} participants by name: ${participantNames.join(', ')}
+- Do not skip anyone - each participant must be acknowledged
+- Address the group collectively but personalize for each person
+- Reference their specific goals or challenges mentioned in their introductions
+- Draw connections between participants' shared goals and unique perspectives
 
 Participant Introductions:
 ${introSummaries}
 
-Create a welcoming message that addresses the group collectively while acknowledging each person's unique goals and challenges. Make it feel like you truly understand what each participant is bringing to this session.`;
+Create a welcoming message that addresses the group collectively while acknowledging EACH person's unique goals and challenges. Make sure to mention all participants by name.`;
 
     // Generate the custom intro using AI
     const response = await ServerAIService.generateResponse([
