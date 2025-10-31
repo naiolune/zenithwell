@@ -227,7 +227,7 @@ async function handleChatRequest(request: NextRequest, context: SecurityContext)
 
     const { data: sessionData, error: sessionDataError } = await supabase
       .from('therapy_sessions')
-      .select('created_at, last_message_at')
+      .select('created_at, last_message_at, user_id')
       .eq('session_id', sessionId)
       .single();
 
@@ -235,8 +235,10 @@ async function handleChatRequest(request: NextRequest, context: SecurityContext)
       return NextResponse.json({ error: 'Session data not found' }, { status: 404 });
     }
 
-    // Server-side session time validation for free users
-    if (userData.subscription_tier === 'free') {
+    // Only apply session time and count restrictions to session owners, not participants
+    // Participants who joined via invite don't need Pro subscription or time limits
+    if (isOwner && userData.subscription_tier === 'free') {
+      // Server-side session time validation for free users (owners only)
       const sessionStartTime = new Date(sessionData.created_at);
       const now = new Date();
       const sessionDuration = now.getTime() - sessionStartTime.getTime();
@@ -249,10 +251,8 @@ async function handleChatRequest(request: NextRequest, context: SecurityContext)
           message: 'Free users are limited to 15 minutes per session. Upgrade to Pro for unlimited time.'
         }, { status: 403 });
       }
-    }
 
-    // Server-side session count validation for free users
-    if (userData.subscription_tier === 'free') {
+      // Server-side session count validation for free users (owners only)
       const { data: userSessions, error: sessionsError } = await supabase
         .from('therapy_sessions')
         .select('session_id')
