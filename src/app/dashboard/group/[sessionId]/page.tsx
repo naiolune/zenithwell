@@ -719,16 +719,21 @@ export default function GroupSessionPage() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
         },
-        body: JSON.stringify({ messageId })
+        body: JSON.stringify({ 
+          messageId,
+          sessionId 
+        })
       });
 
       if (!response.ok) {
-        throw new Error('Failed to delete message');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to delete message');
       }
 
       setMessages(prev => prev.filter(msg => msg.id !== messageId));
     } catch (error) {
       console.error('Error deleting message:', error);
+      alert(error instanceof Error ? error.message : 'Failed to delete message');
     }
   };
 
