@@ -20,40 +20,66 @@ export async function generateGroupSessionIntro(sessionId: string): Promise<stri
       return null; // Not a group session
     }
 
-    // Get all participant introductions
-    const { data: introductions, error } = await supabase
+    // Get all participant introductions (without join to avoid RLS issues)
+    let { data: introductions, error } = await supabase
       .from('participant_introductions')
-      .select(`
-        id,
-        user_id,
-        group_category,
-        relationship_role,
-        why_wellness,
-        goals,
-        challenges,
-        family_role,
-        family_goals,
-        what_to_achieve,
-        participant_role,
-        wellness_reason,
-        personal_goals,
-        expectations,
-        users!inner(
-          id,
-          email,
-          full_name
-        )
-      `)
+      .select('*')
       .eq('session_id', sessionId)
       .order('created_at', { ascending: true });
 
-    if (error || !introductions || introductions.length === 0) {
-      console.log('No introductions found for group session, using default');
+    console.log('[INTRO GENERATOR] Query result:', { 
+      introductionsCount: introductions?.length || 0, 
+      error: error?.message,
+      sessionId 
+    });
+
+    if (error) {
+      console.error('[INTRO GENERATOR] Error fetching introductions:', error);
+      return null;
+    }
+
+    if (!introductions || introductions.length === 0) {
+      console.log('[INTRO GENERATOR] No introductions found for group session, using default');
       return null; // No introductions yet, use default message
     }
 
+    // Fetch user names separately for each introduction
+    const userIds = introductions.map(i => i.user_id).filter(Boolean);
+    const userMap = new Map<string, { email?: string; full_name?: string }>();
+    
+    if (userIds.length > 0) {
+      console.log(`[INTRO GENERATOR] Fetching user data for ${userIds.length} users...`);
+      // Fetch user names from auth.users via admin API
+      for (const userId of userIds) {
+        try {
+          const { data: authUser, error: authError } = await supabase.auth.admin.getUserById(userId);
+          if (!authError && authUser?.user) {
+            const metadata = authUser.user.user_metadata || {};
+            userMap.set(userId, {
+              email: authUser.user.email || '',
+              full_name: metadata.first_name && metadata.last_name 
+                ? `${metadata.first_name} ${metadata.last_name}`
+                : metadata.full_name || metadata.name || metadata.display_name || authUser.user.email?.split('@')[0] || 'Participant'
+            });
+          }
+        } catch (e) {
+          console.error(`[INTRO GENERATOR] Error fetching user ${userId}:`, e);
+          // Set a default name if fetch fails
+          userMap.set(userId, { email: '', full_name: 'Participant' });
+        }
+      }
+    }
+
+    // Map introductions with user data (introductions is guaranteed to be non-null here)
+    const introductionsWithUsers = introductions.map(intro => ({
+      ...intro,
+      users: userMap.get(intro.user_id) || { email: '', full_name: 'Participant' }
+    }));
+
+    console.log(`[INTRO GENERATOR] Found ${introductionsWithUsers.length} introductions with user data, generating custom intro...`);
+
     // Format introductions for AI context
-    const introSummaries = introductions.map(intro => {
+    const introSummaries = introductionsWithUsers.map(intro => {
       const user = Array.isArray(intro.users) ? intro.users[0] : intro.users;
       const userName = user?.full_name?.split(' ')[0] || user?.email?.split('@')[0] || 'A participant';
       
