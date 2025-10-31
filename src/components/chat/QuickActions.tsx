@@ -1,19 +1,23 @@
 "use client"
 
 import { Button } from '@/components/ui/button'
-import { SquarePower } from 'lucide-react'
+import { SquarePower, RotateCcw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface QuickActionsProps {
   onEndSession?: () => void
+  onRestartSession?: () => void
   disabled?: boolean
   className?: string
+  showRestart?: boolean
 }
 
 export function QuickActions({
   onEndSession,
+  onRestartSession,
   disabled,
   className,
+  showRestart = false,
 }: QuickActionsProps) {
   return (
     <div
@@ -22,6 +26,19 @@ export function QuickActions({
         className
       )}
     >
+      {showRestart && onRestartSession && (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={disabled}
+          onClick={onRestartSession}
+          className="flex items-center gap-2"
+        >
+          <RotateCcw className="h-4 w-4" />
+          Restart Session
+        </Button>
+      )}
       {onEndSession && (
         <Button
           type="button"
@@ -40,4 +57,5 @@ export function QuickActions({
 }
 
 export default QuickActions
+
 

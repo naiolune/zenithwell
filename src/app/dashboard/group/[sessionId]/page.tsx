@@ -12,7 +12,7 @@ import { ChatMessage } from '@/types';
 import { ParticipantList } from '@/components/ParticipantStatus';
 import { ShareLinkDialog } from '@/components/ShareLinkDialog';
 import { GROUP_SESSION_CONFIG } from '@/lib/group-session-config';
-import SessionSidebar from '@/components/chat/SessionSidebar';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';;
 import MessageBubble from '@/components/chat/MessageBubble';
 import ChatInput from '@/components/chat/ChatInput';
 import QuickActions from '@/components/chat/QuickActions';
@@ -60,6 +60,8 @@ export default function GroupSessionPage() {
   const [showEmergencyResources, setShowEmergencyResources] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set());
+  const [showRestartDialog, setShowRestartDialog] = useState(false);
+  const [isRestarting, setIsRestarting] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const realtimeChannelRef = useRef<any>(null);
@@ -813,9 +815,40 @@ export default function GroupSessionPage() {
     setShowBreakPrompt(false);
   };
 
+  const handleRestartSession = async () => {
+    setIsRestarting(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await fetch('/api/group/restart', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(session?.access_token ? { 'Authorization': `Bearer ${session.access_token}` } : {}),
+        },
+        body: JSON.stringify({ sessionId }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to restart session');
+      }
+
+      // Refresh messages to show the new intro
+      await fetchMessages();
+      setShowRestartDialog(false);
+    } catch (error) {
+      console.error('Error restarting session:', error);
+      alert(error instanceof Error ? error.message : 'Failed to restart session');
+    } finally {
+      setIsRestarting(false);
+    }
+  };
+
   const renderQuickActions = () => (
     <QuickActions
       onEndSession={() => router.push('/dashboard/group')}
+      onRestartSession={() => setShowRestartDialog(true)}
+      showRestart={isOwner && sessionData?.session_status === 'active'}
     />
   );
 
@@ -1058,6 +1091,35 @@ export default function GroupSessionPage() {
           />
         </div>
       </div>
+
+      {/* Restart Session Confirmation Dialog */}
+      <Dialog open={showRestartDialog} onOpenChange={setShowRestartDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Restart Group Session?</DialogTitle>
+            <DialogDescription>
+              This will delete all messages and start fresh with a new introduction from your coach.
+              This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowRestartDialog(false)}
+              disabled={isRestarting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleRestartSession}
+              disabled={isRestarting}
+            >
+              {isRestarting ? 'Restarting...' : 'Yes, Restart Session'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
